@@ -1,0 +1,57 @@
+name: Weaviate Local K8s Action
+description: Deploy Weaviate to a local Kubernetes cluster
+
+inputs:
+  weaviate-port:
+    description: 'The port number for Weaviate'
+    required: false
+    default: '8080'
+    
+
+  weaviate-grpc-port:
+    description: 'The gRPC port number for Weaviate'
+    required: false
+    default: '50051'
+
+  workers:
+    description: 'The number of workers for Weaviate'
+    required: false
+    default: '3'
+
+  replicas:
+    description: 'The number of replicas for Weaviate'
+    required: false
+    default: '3'
+
+  weaviate-version:
+    description: 'The version of Weaviate to deploy'
+    required: false
+    default: 'latest'
+
+  helm-branch:
+    description: 'The branch of the Helm chart repository to use'
+    required: false
+    default: ''
+
+  values-override:
+    description: 'Override values for the Helm chart in YAML string'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create values-override.yaml
+      shell: bash
+      run: |
+        echo "${{ inputs.values-override }}" > values-override.yaml
+    - name: Deploy local kubernetes cluster
+      shell: bash
+      env:
+        WEAVIATE_PORT: ${{ inputs.weaviate-port }}
+        WEAVIATE_GRPC_PORT: ${{ inputs.weaviate-grpc-port }}
+        WORKERS: ${{ inputs.workers }}
+        REPLICAS: ${{ inputs.replicas }}
+        WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
+        HELM_BRANCH: ${{ inputs.helm-branch }}
+      run: ./local-k8s.sh setup

@@ -1,0 +1,15 @@
+on:
+  push:
+
+jobs:
+    hello_world_job:
+      runs-on: ubuntu-latest
+      name: A job to say hello
+      steps:
+        - uses: actions/checkout@v4
+        - id: foo
+          uses: weaviate/actions/weaviate-local-k8s@main
+          with:
+            workers: '3'
+            replicas: '5'
+            version: '1.24.3'
