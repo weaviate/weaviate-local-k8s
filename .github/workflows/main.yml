@@ -2,14 +2,14 @@ on:
   push:
 
 jobs:
-    hello_world_job:
+    run-weaviate-local-k8s:
       runs-on: ubuntu-latest
-      name: A job to say hello
+      name: Test the weaviate-local-k8s action
       steps:
         - uses: actions/checkout@v4
         - id: foo
-          uses: weaviate/actions/weaviate-local-k8s@main
+          uses: weaviate/weaviate-local-k8s@main
           with:
             workers: '3'
             replicas: '5'
-            version: '1.24.3'
+            weaviate-version: '1.24.3'
