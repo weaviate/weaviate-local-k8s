@@ -24,8 +24,8 @@ jobs:
                   echo "Error: Workers count is not equal to 3"
                   exit 1
               fi
-              versions=$(curl "http://127.0.0.1:8080/v1/nodes" | jq '.nodes[] | .version')
-              for version in $versions; do
+              versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+              for version in `echo $versions | tr '\n' ' '`; do
                   if [[ "$version" != "1.24.3" ]]; then
                       echo "Error: Version is not equal to 1.24.3"
                       exit 1
@@ -61,8 +61,8 @@ jobs:
                   echo "Error: Workers count is not equal to 3"
                   exit 1
               fi
-              versions=$(curl "http://127.0.0.1:8081/v1/nodes" | jq '.nodes[] | .version')
-              for version in $versions; do
+              versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+              for version in `echo $versions | tr '\n' ' '`; do
                   if [[ "$version" != "preview--0952f59" ]]; then
                       echo "Error: Version is not equal to preview--0952f59"
                       exit 1
