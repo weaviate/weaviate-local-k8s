@@ -6,18 +6,35 @@ jobs:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with basic parameters
       steps:
-        - uses: actions/checkout@v4
         - id: invoke-local-k8s
           uses: weaviate/weaviate-local-k8s@main
           with:
             workers: '3'
             replicas: '5'
             weaviate-version: '1.24.3'
+        - name: Check the configured values
+          run: |
+              replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+              if [[ "$replicas" -ne 5 ]]; then
+                  echo "Error: Replicas count is not equal to 5"
+                  exit 1
+              fi
+              workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+              if [[ "$workers" -ne 3 ]]; then
+                  echo "Error: Workers count is not equal to 3"
+                  exit 1
+              fi
+              versions=$(curl "http://127.0.0.1:8080/v1/nodes" | jq '.nodes[] | .version')
+              for version in $versions; do
+                  if [[ "$version" != "1.24.3" ]]; then
+                      echo "Error: Version is not equal to 1.24.3"
+                      exit 1
+                  fi
+              done
     run-weaviate-local-k8s-all-params:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action passing all parameters
       steps:
-        - uses: actions/checkout@v4
         - id: foo
           uses: weaviate/weaviate-local-k8s@main
           with:
@@ -32,3 +49,22 @@ jobs:
                   size: 50Gi
                 env:
                   ASYNC_INDEXING: true
+        - name: Check the configured values
+          run: |
+              replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+              if [[ "$replicas" -ne 5 ]]; then
+                  echo "Error: Replicas count is not equal to 6"
+                  exit 1
+              fi
+              workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+              if [[ "$workers" -ne 3 ]]; then
+                  echo "Error: Workers count is not equal to 3"
+                  exit 1
+              fi
+              versions=$(curl "http://127.0.0.1:8081/v1/nodes" | jq '.nodes[] | .version')
+              for version in $versions; do
+                  if [[ "$version" != "preview--0952f59" ]]; then
+                      echo "Error: Version is not equal to preview--0952f59"
+                      exit 1
+                  fi
+              done
