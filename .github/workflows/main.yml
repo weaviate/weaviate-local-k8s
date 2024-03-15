@@ -5,66 +5,78 @@ jobs:
     run-weaviate-local-k8s-basic:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with basic parameters
+      env:
+        WORKERS: '3'
+        REPLICAS: '5'
+        WEAVIATE_VERSION: '1.24.3'
       steps:
         - id: invoke-local-k8s
           uses: weaviate/weaviate-local-k8s@main
           with:
-            workers: '3'
-            replicas: '5'
-            weaviate-version: '1.24.3'
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
         - name: Check the configured values
           run: |
-              replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
-              if [[ "$replicas" -ne 5 ]]; then
-                  echo "Error: Replicas count is not equal to 5"
-                  exit 1
-              fi
-              workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
-              if [[ "$workers" -ne 3 ]]; then
-                  echo "Error: Workers count is not equal to 3"
-                  exit 1
-              fi
-              versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
-              for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "1.24.3" ]]; then
-                      echo "Error: Version is not equal to 1.24.3"
-                      exit 1
-                  fi
-              done
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
     run-weaviate-local-k8s-all-params:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action passing all parameters
+      env:
+        WORKERS: '3'
+        REPLICAS: '6'
+        WEAVIATE_VERSION: 'preview--0952f59'
+        WEAVIATE_PORT: '8081'
+        WEAVIATE_GRPC_PORT: '50052'
+        HELM_BRANCH: 'raft-configuration'
+        VALUES_OVERRIDE: |
+          storage:
+            size: 50Gi
+          env:
+            ASYNC_INDEXING: true
       steps:
         - id: foo
           uses: weaviate/weaviate-local-k8s@main
           with:
-              workers: '3'
-              replicas: '6'
-              weaviate-version: 'preview--0952f59'
-              weaviate-port: '8081'
-              weaviate-grpc-port: '50052'
-              helm-branch: 'raft-configuration'
-              values-override: |
-                storage:
-                  size: 50Gi
-                env:
-                  ASYNC_INDEXING: true
+              workers: ${{ env.WORKERS }}
+              replicas: ${{ env.REPLICAS }}
+              weaviate-version: ${{ env.WEAVIATE_VERSION }}
+              weaviate-port: ${{ env.WEAVIATE_PORT }}
+              weaviate-grpc-port: ${{ env.WEAVIATE_GRPC_PORT }}
+              helm-branch: ${{ env.HELM_BRANCH }}
+              values-override: ${{ env.VALUES_OVERRIDE }}
         - name: Check the configured values
           run: |
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
-              if [[ "$replicas" -ne 5 ]]; then
-                  echo "Error: Replicas count is not equal to 6"
+              if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                  echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
                   exit 1
               fi
               workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
-              if [[ "$workers" -ne 3 ]]; then
-                  echo "Error: Workers count is not equal to 3"
+              if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                  echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
                   exit 1
               fi
-              versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+              versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "preview--0952f59" ]]; then
-                      echo "Error: Version is not equal to preview--0952f59"
+                  if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                      echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
                       exit 1
                   fi
               done
