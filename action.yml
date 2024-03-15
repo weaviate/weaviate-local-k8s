@@ -5,34 +5,27 @@ inputs:
   weaviate-port:
     description: 'The port number for Weaviate'
     required: false
-    default: '8080'
-    
-
+    default: '8080'    
   weaviate-grpc-port:
     description: 'The gRPC port number for Weaviate'
     required: false
     default: '50051'
-
   workers:
     description: 'The number of workers for Weaviate'
     required: false
     default: '3'
-
   replicas:
     description: 'The number of replicas for Weaviate'
     required: false
     default: '3'
-
   weaviate-version:
     description: 'The version of Weaviate to deploy'
     required: false
     default: 'latest'
-
   helm-branch:
     description: 'The branch of the Helm chart repository to use'
     required: false
     default: ''
-
   values-override:
     description: 'Override values for the Helm chart in YAML string'
     required: false
@@ -55,3 +48,9 @@ runs:
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
       run: ./local-k8s.sh setup
+    - name: Retrieve weaviate logs
+      shell: bash
+      if: failure()
+      run: |
+        ps aux | grep kubectl-relay
+        kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate

@@ -2,14 +2,33 @@ on:
   push:
 
 jobs:
-    run-weaviate-local-k8s:
+    run-weaviate-local-k8s-basic:
       runs-on: ubuntu-latest
-      name: Test the weaviate-local-k8s action
+      name: Invoke weaviate-local-k8s action with basic parameters
       steps:
         - uses: actions/checkout@v4
-        - id: foo
+        - id: invoke-local-k8s
           uses: weaviate/weaviate-local-k8s@main
           with:
             workers: '3'
             replicas: '5'
             weaviate-version: '1.24.3'
+    run-weaviate-local-k8s-all-params:
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action passing all parameters
+      steps:
+        - uses: actions/checkout@v4
+        - id: foo
+          uses: weaviate/weaviate-local-k8s@main
+          with:
+              workers: '3'
+              replicas: '6'
+              weaviate-version: 'preview--0952f59'
+              weaviate-port: '8081'
+              weaviate-grpc-port: '50052'
+              helm-branch: 'raft-configuration'
+              values-override: |
+                storage:
+                  size: 50Gi
+                env:
+                  ASYNC_INDEXING: true

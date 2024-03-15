@@ -17,8 +17,8 @@ REQUIREMENTS=(
 # is running in a separate network and can't access the host network. To fix this, you can use the IP address
 # of the host machine instead of localhost, using "host.docker.internal". For example:
 # client = weaviate.connect_to_local(host="host.docker.internal")
-WEAVIATE_PORT=${8080:-WEAVIATE_PORT}
-WEAVIATE_GRPC_PORT=${50051:-WEAVIATE_GRPC_PORT}
+WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
+WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 
@@ -34,7 +34,7 @@ function upgrade_to_raft() {
         --set image.tag="preview-raft-add-initial-migration-from-non-raft-to-raft-based-representation-c242ac4" \
         --set replicas=$REPLICAS \
         --set grpcService.enabled=true \
-        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS)
+        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) 
 
     # Wait for Weaviate to be up
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=100s
@@ -83,6 +83,12 @@ EOF
         TARGET="weaviate/weaviate"
     fi
 
+    VALUES_OVERRIDE=""
+    # Check if values-override.yaml file exists
+    if [ -f "values-override.yaml" ]; then
+        VALUES_OVERRIDE="-f values-override.yaml"
+    fi
+
     # Install Weaviate using Helm
     helm upgrade --install weaviate $TARGET \
     --namespace weaviate \
@@ -91,7 +97,8 @@ EOF
     --set grpcService.enabled=true \
     --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
     --set env.LOG_LEVEL="debug" \
-    --set env.DISABLE_TELEMETRY="true"
+    --set env.DISABLE_TELEMETRY="true" \
+    $VALUES_OVERRIDE
     #--set debug=true
 
     # Calculate the timeout value based on the number of replicas
