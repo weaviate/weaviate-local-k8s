@@ -75,8 +75,8 @@ jobs:
               fi
               versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
-                      echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                  if [[ "$version" != "1.24.2" ]]; then
+                      echo "Error: Version is not equal to 1.24.2. Found $version"
                       exit 1
                   fi
               done
