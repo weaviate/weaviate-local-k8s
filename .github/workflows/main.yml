@@ -51,7 +51,7 @@ jobs:
           env:
             ASYNC_INDEXING: true
       steps:
-        - id: foo
+        - id: invoke-local-k8s
           uses: weaviate/weaviate-local-k8s@main
           with:
               workers: ${{ env.WORKERS }}

@@ -39,7 +39,7 @@ runs:
     - name: Create values-override.yaml
       shell: bash
       run: |
-        echo "${{ inputs.values-override }}" > values-override.yaml
+        echo "${{ inputs.values-override }}" > ${{ github.action_path }}/values-override.yaml
     - name: Deploy local kubernetes cluster
       shell: bash
       env:
@@ -49,7 +49,7 @@ runs:
         REPLICAS: ${{ inputs.replicas }}
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
-      run: ./local-k8s.sh setup
+      run: ${{ github.action_path }}/local-k8s.sh setup
     - name: Retrieve weaviate logs
       shell: bash
       if: failure()
