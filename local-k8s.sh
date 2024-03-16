@@ -1,8 +1,11 @@
 #!/bin/bash
 set -eou pipefail
 
+# Set the current directory in a variable
+CURRENT_DIR="$(dirname "$0")"
+
 # Import functions from utilities.sh
-source utilities/helpers.sh
+source "$CURRENT_DIR/utilities/helpers.sh"
 
 REQUIREMENTS=(
   "kind"
@@ -85,8 +88,8 @@ EOF
 
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
-    if [ -f "values-override.yaml" ]; then
-        VALUES_OVERRIDE="-f values-override.yaml"
+    if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
+        VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
     fi
 
     # Install Weaviate using Helm
