@@ -54,5 +54,7 @@ runs:
       shell: bash
       if: failure()
       run: |
-        ps aux | grep kubectl-relay
+        echo "###### WEAVIATE LOGS ######"
         kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate
+        echo "####### KUBECTL-RELAY PROCESSES ######"
+        pgrep kubectl-relay
