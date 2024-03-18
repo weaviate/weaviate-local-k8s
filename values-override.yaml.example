@@ -1,0 +1,20 @@
+resources:
+  requests:
+    cpu: '100m'
+    memory: '100Mi'
+  limits:
+    cpu: '100m'
+    memory: '100Mi'
+storage:
+  size: 50Gi
+env:
+  ASYNC_INDEXING: true
+  PERSISTENCE_LSM_ACCESS_STRATEGY: 'mmap'
+  DISABLE_TELEMETRY: 'true'
+backups:
+  s3:
+    enabled: true
+    envconfig:
+      BACKUP_S3_ENDPOINT: 'backup-s3:9000'
+      BACKUP_S3_BUCKET: 'weaviate-backups'
+      BACKUP_S3_USE_SSL: 'false'
