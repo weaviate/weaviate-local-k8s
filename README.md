@@ -26,8 +26,12 @@ To use this action in your GitHub Actions workflow, you can add the following st
     weaviate-version: 'latest'
     values-override: |
       resources:
-        cpu: '100m'
-        memory: '100Mi'
+        requests:
+          cpu: '100m'
+          memory: '100Mi'
+        limits:
+          cpu: '100m'
+          memory: '100Mi'
       storage:
         size: 50Gi
       env:
@@ -41,7 +45,7 @@ To use this action in your GitHub Actions workflow, you can add the following st
             BACKUP_S3_ENDPOINT: 'backup-s3:9000'
             BACKUP_S3_BUCKET: 'weaviate-backups'
             BACKUP_S3_USE_SSL: 'false'
-       
+
 ```
 
 ### Local Execution
