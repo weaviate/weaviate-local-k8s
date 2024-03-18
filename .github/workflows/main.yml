@@ -82,11 +82,11 @@ jobs:
               done
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
-      name: Create a single-node Weaviate cluster with non-RAFT weaviate-helm configuration on a RAFT version (checks failure path)
+      name: Create a single-node Weaviate cluster with non existing image.
       env:
           WORKERS: '1'
           REPLICAS: '1'
-          WEAVIATE_VERSION: 'preview--0952f59'
+          WEAVIATE_VERSION: 'idontexist_youdidntseeme'
       steps:
         - id: invoke-local-k8s
           uses: weaviate/weaviate-local-k8s@main
