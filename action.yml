@@ -56,5 +56,8 @@ runs:
       run: |
         echo "###### WEAVIATE LOGS ######"
         kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate
+        echo "####### WEAVIATE STS CONFIG ######"
+        kubectl get sts weaviate -n weaviate -o yaml
         echo "####### KUBECTL-RELAY PROCESSES ######"
         pgrep kubectl-relay || echo "No kubectl-relay processes found"
+        
