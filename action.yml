@@ -55,9 +55,9 @@ runs:
       if: failure()
       run: |
         echo "###### WEAVIATE LOGS ######"
-        kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate
+        kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate || true
         echo "####### WEAVIATE STS CONFIG ######"
-        kubectl get sts weaviate -n weaviate -o yaml
+        kubectl get sts weaviate -n weaviate -o yaml || true
         echo "####### KUBECTL-RELAY PROCESSES ######"
-        pgrep kubectl-relay || echo "No kubectl-relay processes found"
+        pgrep kubectl-relay || echo "No kubectl-relay processes found" || true
         
