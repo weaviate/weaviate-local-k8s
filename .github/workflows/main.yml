@@ -80,3 +80,31 @@ jobs:
                       exit 1
                   fi
               done
+    run-weaviate-local-k8s-which-fails:
+      runs-on: ubuntu-latest
+      name: Create a single-node Weaviate cluster with non-RAFT weaviate-helm configuration on a RAFT version (checks failure path)
+      env:
+          WORKERS: '1'
+          REPLICAS: '1'
+          WEAVIATE_VERSION: 'preview--0952f59'
+      steps:
+        - id: invoke-local-k8s
+          uses: weaviate/weaviate-local-k8s@main
+          with:
+              workers: ${{ env.WORKERS }}
+              replicas: ${{ env.REPLICAS }}
+              weaviate-version: ${{ env.WEAVIATE_VERSION }}
+          continue-on-error: true
+        - name: Check that deployment failed
+          if: steps.invoke-local-k8s.outcome == 'success'
+          run: |
+            echo "The previous step should have failed, but it didn't"
+            exit 1
+        - name: Check that the deployment failed
+          run: |
+              availableReplicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.status.availableReplicas}')
+              if [[ "$replicas" -ne "0" ]]; then
+                  echo "Error: Replicas count should be 0. Found $replicas"
+                  exit 1
+              fi
+  
