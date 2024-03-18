@@ -37,7 +37,7 @@ function upgrade_to_raft() {
         --set image.tag="preview-raft-add-initial-migration-from-non-raft-to-raft-based-representation-c242ac4" \
         --set replicas=$REPLICAS \
         --set grpcService.enabled=true \
-        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) 
+        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS)
 
     # Wait for Weaviate to be up
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=100s
@@ -106,7 +106,7 @@ EOF
 
     # Calculate the timeout value based on the number of replicas
     if [[ $REPLICAS -le 1 ]]; then
-        TIMEOUT=60s
+        TIMEOUT=90s
     else
         TIMEOUT=$((REPLICAS * 60))s
     fi
