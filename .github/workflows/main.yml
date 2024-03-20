@@ -125,7 +125,7 @@ jobs:
               modules: ${{ env.MODULES }}
         - name: Check the configured values
           run: |
-              replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+              replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.status.availableReplicas}")
               if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                   echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
                   exit 1
@@ -142,3 +142,8 @@ jobs:
                       exit 1
                   fi
               done
+              contextionary=$(kubectl get deployment contextionary -n weaviate -o=jsonpath="{.status.availableReplicas}")
+              if [[ "$contextionary" -ne "1" ]]; then
+                  echo "Error: Contextionary replicas count is not equal to 1. Found $contextionary"
+                  exit 1
+              fi
