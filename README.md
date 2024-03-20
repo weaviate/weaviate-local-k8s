@@ -10,6 +10,7 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **replicas**: The number of replicas for Weaviate. (Optional, default: '3')
 - **weaviate-version**: The version of Weaviate to deploy. (Optional, default: 'latest')
 - **helm-branch**: The branch of the Helm chart repository to use. If not specified, then the latest published Helm chart for weaviate/weaviate will used. (Optional, default: '')
+- **modules**: The vectorizer/modules that will be started up along with Weaviate. Consists on a comma-separated list of modules. The list of supported modules can be found [here](https://weaviate.io/developers/weaviate/modules)
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 
 ### Usage
@@ -24,6 +25,7 @@ To use this action in your GitHub Actions workflow, you can add the following st
     workers: '3'
     replicas: '3'
     weaviate-version: 'latest'
+    modules: 'text2vec-contextionary'
     values-override: |
       resources:
         requests:

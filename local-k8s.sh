@@ -22,6 +22,7 @@ REQUIREMENTS=(
 # client = weaviate.connect_to_local(host="host.docker.internal")
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
+MODULES=${MODULES:-""}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 
@@ -92,15 +93,13 @@ EOF
         VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
     fi
 
+    HELM_VALUES=$(generate_helm_values)
+
+    echo "setup # Deploying weaviate-helm with values: $HELM_VALUES $VALUES_OVERRIDE"
     # Install Weaviate using Helm
     helm upgrade --install weaviate $TARGET \
     --namespace weaviate \
-    --set image.tag=$WEAVIATE_VERSION \
-    --set replicas=$REPLICAS \
-    --set grpcService.enabled=true \
-    --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
-    --set env.LOG_LEVEL="debug" \
-    --set env.DISABLE_TELEMETRY="true" \
+    $HELM_VALUES \
     $VALUES_OVERRIDE
     #--set debug=true
 
@@ -109,6 +108,11 @@ EOF
         TIMEOUT=90s
     else
         TIMEOUT=$((REPLICAS * 60))s
+    fi
+
+    # Increase timeout if MODULES is not empty as the module image might take some time to download
+    if [ -n "$MODULES" ]; then
+        TIMEOUT=900s
     fi
 
     # Wait for Weaviate to be up

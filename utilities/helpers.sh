@@ -67,3 +67,28 @@ function port_forward_to_weaviate() {
 
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
 }
+
+function generate_helm_values() {
+
+    local helm_values="--set image.tag=$WEAVIATE_VERSION \
+                      --set replicas=$REPLICAS \
+                      --set grpcService.enabled=true \
+                      --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
+                      --set env.LOG_LEVEL=\"debug\" \
+                      --set env.DISABLE_TELEMETRY=\"true\""
+
+    # Declare MODULES_ARRAY variable
+    declare -a MODULES_ARRAY
+
+    # Check if MODULES variable is not empty
+    if [[ -n "$MODULES" ]]; then
+        # Splitting $MODULES by comma and iterating over each module
+        IFS=',' read -ra MODULES_ARRAY <<< "$MODULES"
+        for MODULE in "${MODULES_ARRAY[@]}"; do
+            # Add module string to helm_values
+            helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
+        done
+    fi
+
+    echo "$helm_values"
+}

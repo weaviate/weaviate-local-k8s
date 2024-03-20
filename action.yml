@@ -26,6 +26,10 @@ inputs:
     description: 'The branch of the Helm chart repository to use'
     required: false
     default: ''
+  modules:
+    description: 'Modules to load on Weaviate startup. Comma separated list of module names'
+    required: false
+    default: ''
   values-override:
     description: 'Override values for the Helm chart in YAML string'
     required: false
@@ -48,6 +52,7 @@ runs:
         WORKERS: ${{ inputs.workers }}
         REPLICAS: ${{ inputs.replicas }}
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
+        MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
       run: ${{ github.action_path }}/local-k8s.sh setup
     - name: Retrieve weaviate logs
