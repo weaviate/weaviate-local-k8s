@@ -12,6 +12,22 @@ function wait_weaviate() {
   done
 }
 
+function wait_cluster_join() {
+    node=$1
+
+    echo "Wait for node ${node} to join the cluster"
+    for _ in {1..120}; do
+        if curl -sf localhost:8080/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+            echo "Node ${node} has joined the cluster"
+            break
+        fi
+
+        echo "Node ${node} has not joined the cluster, trying again in 1s"
+        sleep 1
+    done
+
+}
+
 # This auxiliary function returns the number of voters based on the number of nodes, passing the number of nodes as an argument.
 function get_voters() {
     if [[ $1 -ge 10 ]]; then
@@ -74,8 +90,8 @@ function generate_helm_values() {
                       --set replicas=$REPLICAS \
                       --set grpcService.enabled=true \
                       --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
-                      --set env.LOG_LEVEL=\"debug\" \
-                      --set env.DISABLE_TELEMETRY=\"true\""
+                      --set env.LOG_LEVEL=debug \
+                      --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
@@ -91,4 +107,31 @@ function generate_helm_values() {
     fi
 
     echo "$helm_values"
+}
+
+
+function setup_helm () {
+
+    if [ $# -eq 0 ]; then
+        HELM_BRANCH=""
+    else
+        HELM_BRANCH=$1
+    fi
+
+    if [ -n "${HELM_BRANCH:-}" ]; then
+        WEAVIATE_HELM_DIR="/tmp/weaviate-helm"
+        # Delete $WEAVIATE_HELM_DIR if it already exists
+        if [ -d "$WEAVIATE_HELM_DIR" ]; then
+            rm -rf "$WEAVIATE_HELM_DIR"
+        fi
+        # Download weaviate-helm repository master branch
+        git clone -b $HELM_BRANCH https://github.com/weaviate/weaviate-helm.git $WEAVIATE_HELM_DIR
+        # Package Weaviate Helm chart
+        helm package -d ${WEAVIATE_HELM_DIR} ${WEAVIATE_HELM_DIR}/weaviate
+        TARGET=${WEAVIATE_HELM_DIR}/weaviate-*.tgz
+    else
+        helm repo add weaviate https://weaviate.github.io/weaviate-helm
+        TARGET="weaviate/weaviate"
+    fi
+
 }

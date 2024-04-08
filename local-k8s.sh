@@ -23,23 +23,37 @@ REQUIREMENTS=(
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 MODULES=${MODULES:-""}
+HELM_BRANCH=${HELM_BRANCH:-""}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
+TARGET=""
 
 
 function upgrade_to_raft() {
     echo "upgrade # Upgrading to RAFT"
-    rm -rf "/tmp/weaviate-helm"
-    git clone -b raft-configuration https://github.com/weaviate/weaviate-helm.git "/tmp/weaviate-helm"
-    # Package Weaviate Helm chart
-    helm package -d /tmp/weaviate-helm /tmp/weaviate-helm/weaviate
-    helm upgrade weaviate /tmp/weaviate-helm/weaviate-*.tgz  \
-        --namespace weaviate \
-        --set image.tag="preview-raft-add-initial-migration-from-non-raft-to-raft-based-representation-c242ac4" \
-        --set replicas=$REPLICAS \
-        --set grpcService.enabled=true \
-        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS)
+    # This function sets up weaviate-helm and sets the global env var $TARGET
+    setup_helm $HELM_BRANCH
 
+    echo "upgrade # Deleting Weaviate StatefulSet"
+    kubectl delete sts weaviate -n weaviate
+
+    HELM_VALUES=$(generate_helm_values)
+
+    VALUES_OVERRIDE=""
+    # Check if values-override.yaml file exists
+    if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
+        VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
+    fi
+
+    echo -e "upgrade # Upgrading weaviate-helm with values: \n\
+        TARGET: $TARGET \n\
+        HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
+        VALUES_OVERRIDE: $VALUES_OVERRIDE"
+    helm upgrade weaviate $TARGET  \
+        --namespace weaviate \
+        $HELM_VALUES \
+        $VALUES_OVERRIDE
+   
     # Wait for Weaviate to be up
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=100s
     port_forward_to_weaviate
@@ -71,21 +85,8 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
-    if [ -n "${HELM_BRANCH:-}" ]; then
-        WEAVIATE_HELM_DIR="/tmp/weaviate-helm"
-        # Delete $WEAVIATE_HELM_DIR if it already exists
-        if [ -d "$WEAVIATE_HELM_DIR" ]; then
-            rm -rf "$WEAVIATE_HELM_DIR"
-        fi
-        # Download weaviate-helm repository master branch
-        git clone -b $HELM_BRANCH https://github.com/weaviate/weaviate-helm.git $WEAVIATE_HELM_DIR
-        # Package Weaviate Helm chart
-        helm package -d ${WEAVIATE_HELM_DIR} ${WEAVIATE_HELM_DIR}/weaviate
-        TARGET=${WEAVIATE_HELM_DIR}/weaviate-*.tgz
-    else
-        helm repo add weaviate https://weaviate.github.io/weaviate-helm
-        TARGET="weaviate/weaviate"
-    fi
+    # This function sets up weaviate-helm and sets the global env var $TARGET 
+    setup_helm $HELM_BRANCH
 
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
@@ -95,7 +96,10 @@ EOF
 
     HELM_VALUES=$(generate_helm_values)
 
-    echo "setup # Deploying weaviate-helm with values: $HELM_VALUES $VALUES_OVERRIDE"
+    echo -e "setup # Deploying weaviate-helm with values: \n\
+        TARGET: $TARGET \n\
+        HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
+        VALUES_OVERRIDE: $VALUES_OVERRIDE"
     # Install Weaviate using Helm
     helm upgrade --install weaviate $TARGET \
     --namespace weaviate \
@@ -158,6 +162,7 @@ if [ $# -eq 0 ]; then
     echo "options:"
     echo "         setup"
     echo "         clean"
+    echo "         upgrade"
     exit 1
 fi
 

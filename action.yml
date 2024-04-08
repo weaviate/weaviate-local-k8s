@@ -2,6 +2,10 @@ name: Weaviate Local K8s Action
 description: Deploy Weaviate to a local Kubernetes cluster
 
 inputs:
+  operation:
+    description: 'The operation to perform. Supported: setup, upgrade, clean. Default: setup'
+    required: true
+    default: 'setup'
   weaviate-port:
     description: 'The port number for Weaviate'
     required: false
@@ -47,6 +51,7 @@ runs:
     - name: Deploy local kubernetes cluster
       shell: bash
       env:
+        OPERATION: ${{ inputs.operation }}
         WEAVIATE_PORT: ${{ inputs.weaviate-port }}
         WEAVIATE_GRPC_PORT: ${{ inputs.weaviate-grpc-port }}
         WORKERS: ${{ inputs.workers }}
@@ -54,7 +59,7 @@ runs:
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
         MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
-      run: ${{ github.action_path }}/local-k8s.sh setup
+      run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
       if: failure()

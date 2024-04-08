@@ -147,3 +147,45 @@ jobs:
                   echo "Error: Contextionary replicas count is not equal to 1. Found $contextionary"
                   exit 1
               fi
+    run-weaviate-local-k8s-upgrade:
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s upgrade to RAFT with basic parameters
+      env:
+        WORKERS: '3'
+        REPLICAS: '5'
+        WEAVIATE_VERSION: '1.24.6'
+      steps:
+        - name: Create ${{ env.WEAVIATE_VERSION }} Weaviate cluster with ${{ env.WORKERS }} workers and ${{ env.REPLICAS }} replicas
+          id: invoke-local-k8s
+          uses: weaviate/weaviate-local-k8s@main
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+        - name: Upgrade cluster to RAFT.
+          uses: weaviate/weaviate-local-k8s@main
+          with:
+            operation: upgrade
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            helm-branch: 'raft-configuration'
+            weaviate-version: "preview--21c08df"
+        - name: Check the configured values
+          run: |
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
