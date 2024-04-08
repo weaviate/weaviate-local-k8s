@@ -30,16 +30,38 @@ GRAFANA_PORT=3000
 function upgrade_to_raft() {
     echo "upgrade # Upgrading to RAFT"
     rm -rf "/tmp/weaviate-helm"
-    git clone -b raft-configuration https://github.com/weaviate/weaviate-helm.git "/tmp/weaviate-helm"
+    git clone -b $HELM_BRANCH https://github.com/weaviate/weaviate-helm.git "/tmp/weaviate-helm"
+
+    # Change updateStrategy to OnDelete and set a 1 VOTER cluster
+    HELM_VALUES=$(generate_upgrade_helm_values 1)
     # Package Weaviate Helm chart
     helm package -d /tmp/weaviate-helm /tmp/weaviate-helm/weaviate
     helm upgrade weaviate /tmp/weaviate-helm/weaviate-*.tgz  \
         --namespace weaviate \
-        --set image.tag="preview-raft-add-initial-migration-from-non-raft-to-raft-based-representation-c242ac4" \
-        --set replicas=$REPLICAS \
-        --set grpcService.enabled=true \
-        --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS)
+        $HELM_VALUES
 
+    echo "upgrade # Upgrading weaviate-0"
+
+    kubectl delete pod weaviate-0 -n weaviate
+    kubectl wait pod/weaviate-0 -n weaviate --for condition=Ready --timeout=300s
+    
+    wait_cluster_join "weaviate-0"
+
+    VOTERS=$(get_voters $REPLICAS)
+    HELM_VALUES=$(generate_upgrade_helm_values $VOTERS)
+    # Once the leader is up in 1 VOTER cluster we can add the rest of the nodes
+    helm upgrade weaviate /tmp/weaviate-helm/weaviate-*.tgz  \
+        --namespace weaviate \
+        $HELM_VALUES
+
+    for ((i=1; i<$REPLICAS; i++)); do
+        echo "upgrade # Upgrading weaviate-$i"
+        kubectl delete pod weaviate-$i -n weaviate
+        kubectl wait pod/weaviate-$i -n weaviate --for condition=Ready --timeout=300s
+        
+        wait_cluster_join "weaviate-$i"
+    done
+   
     # Wait for Weaviate to be up
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=100s
     port_forward_to_weaviate

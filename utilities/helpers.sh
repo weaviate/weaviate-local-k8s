@@ -12,6 +12,22 @@ function wait_weaviate() {
   done
 }
 
+function wait_cluster_join() {
+    node=$1
+
+    echo "Wait for node ${node} to join the cluster"
+    for _ in {1..120}; do
+        if curl -sf localhost:8080/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+            echo "Node ${node} has joined the cluster"
+            break
+        fi
+
+        echo "Node ${node} has not joined the cluster, trying again in 1s"
+        sleep 1
+    done
+
+}
+
 # This auxiliary function returns the number of voters based on the number of nodes, passing the number of nodes as an argument.
 function get_voters() {
     if [[ $1 -ge 10 ]]; then
@@ -74,8 +90,36 @@ function generate_helm_values() {
                       --set replicas=$REPLICAS \
                       --set grpcService.enabled=true \
                       --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
-                      --set env.LOG_LEVEL=\"debug\" \
-                      --set env.DISABLE_TELEMETRY=\"true\""
+                      --set env.LOG_LEVEL=debug \
+                      --set env.DISABLE_TELEMETRY=true"
+
+    # Declare MODULES_ARRAY variable
+    declare -a MODULES_ARRAY
+
+    # Check if MODULES variable is not empty
+    if [[ -n "$MODULES" ]]; then
+        # Splitting $MODULES by comma and iterating over each module
+        IFS=',' read -ra MODULES_ARRAY <<< "$MODULES"
+        for MODULE in "${MODULES_ARRAY[@]}"; do
+            # Add module string to helm_values
+            helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
+        done
+    fi
+
+    echo "$helm_values"
+}
+
+function generate_upgrade_helm_values() {
+
+    VOTERS=$1
+
+    local helm_values="--set image.tag=$WEAVIATE_VERSION \
+                      --set replicas=$REPLICAS \
+                      --set grpcService.enabled=true \
+                      --set env.RAFT_BOOTSTRAP_EXPECT=$VOTERS \
+                      --set env.LOG_LEVEL=debug \
+                      --set env.DISABLE_TELEMETRY=true \
+                      --set updateStrategy.type=OnDelete"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
