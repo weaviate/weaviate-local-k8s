@@ -4,7 +4,7 @@ description: Deploy Weaviate to a local Kubernetes cluster
 inputs:
   operation:
     description: 'The operation to perform. Supported: setup, upgrade, clean. Default: setup'
-    required: true
+    required: false
     default: 'setup'
   weaviate-port:
     description: 'The port number for Weaviate'

@@ -4,6 +4,7 @@
 This GitHub composite action allows you to deploy Weaviate to a local Kubernetes cluster.
 
 ### Inputs
+- **operation**: The operation to perform. Possible values: setup | upgrade | clean. (Optional, default: 'setup')
 - **weaviate-port**: The port number for Weaviate API. Weaviate's load balancer will be exposed on it. (Optional, default: '8080')
 - **weaviate-grpc-port**: The gRPC port number for Weaviate. (Optional, default: '50051')
 - **workers**: The number of workers in the Kind Kubernetes cluster. (Optional, default: '3')
@@ -68,7 +69,7 @@ Then, you can execute the script with the desired option:
 WEAVIATE_VERSION="1.24.4" REPLICAS=3 ./local-k8s.sh setup
 
 # Upgrade Weaviate to RAFT configuration
-./local-k8s.sh upgrade
+WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" REPLICAS=3 ./local-k8s.sh upgrade
 
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
@@ -81,6 +82,7 @@ The environment variables that can be passed are:
 - **WORKERS**
 - **REPLICAS**
 - **HELM_BRANCH**
+- **MODULES**
 
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
@@ -91,6 +93,24 @@ If you want to override the weaviate-helm values you can create a `values-overri
 
 ```bash
 cp values-override.yaml.example values-override.yaml
+```
+
+If you need any specific vectorizer, you can set it via the `MODULES` environment variable, for example:
+
+```bash
+MODULES="text2vec-contextionary" WEAVIATE_VERSION="1.24.6" REPLICAS=1 WORKERS=1 ./local-k8s.sh setup
+```
+
+This will enable the `text2vec-contextionary`in weaviate-helm and deploy the vectorizer under the weaviate namespace. If you want to enable a vectorizer that requires some extra parameters, you can
+do it in combination of the `values-override.yaml`file:
+
+```bash
+cat <<EOF > values-override.yaml
+text2vec-openai:
+  apiKey: ${OPENAI_APIKEY}
+EOF
+
+MODULES="text2vec-openai" WEAVIATE_VERSION="1.24.6" REPLICAS=1 WORKERS=1 ./local-k8s.sh setup
 ```
 
 ### Invocation
