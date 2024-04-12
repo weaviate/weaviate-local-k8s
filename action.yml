@@ -59,6 +59,7 @@ runs:
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
         MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
+        DELETE_STS: ${{ inputs.delete-sts }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
