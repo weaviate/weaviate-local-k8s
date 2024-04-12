@@ -91,6 +91,7 @@ function generate_helm_values() {
                       --set grpcService.enabled=true \
                       --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
                       --set env.LOG_LEVEL=debug \
+                      --set env.DISABLE_RECOVERY_ON_PANIC=true \
                       --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable

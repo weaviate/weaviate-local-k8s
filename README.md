@@ -68,11 +68,15 @@ Then, you can execute the script with the desired option:
 # Setup Weaviate on local Kubernetes
 WEAVIATE_VERSION="1.24.4" REPLICAS=3 ./local-k8s.sh setup
 
+# Setup using Docker images locally from your laptop
+WORKERS=2 WEAVIATE_VERSION="1.24.8" REPLICAS=3 ./local-k8s.sh setup --local-images
+
 # Upgrade Weaviate to RAFT configuration
 WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" REPLICAS=3 ./local-k8s.sh upgrade
 
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
+
 ```
 
 The environment variables that can be passed are:
@@ -112,6 +116,20 @@ EOF
 
 MODULES="text2vec-openai" WEAVIATE_VERSION="1.24.6" REPLICAS=1 WORKERS=1 ./local-k8s.sh setup
 ```
+
+#### Local Images
+
+One of the problems with Kind, compared to Minikube for example, is that every time you create a new cluster it is downloading the images for the services you deploy, even if the image exists locally on your laptop. To solve this problem you have to options, either to build a [local registry](https://kind.sigs.k8s.io/docs/user/local-registry) or upload the images in advance to your cluster nodes via `kind load docker-image $image --name weaviate-k8s`.
+
+The script has an optional flag that can be passed so that weaviate and contextionary images are taken from your list of local Docker images `--local-images`. To make use of it, simply pass that flag when invoking `setup` or `upgrade`:
+
+```bash
+WORKERS=2 WEAVIATE_VERSION="1.24.8" REPLICAS=3 ./local-k8s.sh setup --local-images
+
+WORKERS=2 WEAVIATE_VERSION="1.25" REPLICAS=3 ./local-k8s.sh upgrade --local-images
+```
+
+Make sure your images are present in your environment, as otherwise the script will fail saying it can't locate those images locally. Simply run `docker pull semitechnologies/weaviate:${WEAVIATE_VERSION}`.
 
 ### Invocation
 

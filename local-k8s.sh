@@ -27,10 +27,23 @@ HELM_BRANCH=${HELM_BRANCH:-""}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
-
+# Array with the images to be used in the local k8s cluster
+WEAVIATE_IMAGES=(
+    "semitechnologies/weaviate:${WEAVIATE_VERSION}"
+    "semitechnologies/contextionary:en0.16.0-v1.2.1"
+)
 
 function upgrade_to_raft() {
     echo "upgrade # Upgrading to RAFT"
+
+    # Upload images to cluster if --local-images flag is passed
+    if [ "${1:-}" == "--local-images" ]; then
+        echo "Uploading local images to the cluster"
+        for image in "${WEAVIATE_IMAGES[@]}"; do
+            kind load docker-image $image --name weaviate-k8s
+        done
+    fi
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -81,6 +94,14 @@ EOF
     echo "setup # Create local k8s cluster"
     # Create k8s Kind Cluster
     kind create cluster --wait 120s --name weaviate-k8s --config /tmp/kind-config.yaml
+
+    # Upload images to cluster if --local-images flag is passed
+    if [ "${1:-}" == "--local-images" ]; then
+        echo "Uploading local images to the cluster"
+        for image in "${WEAVIATE_IMAGES[@]}"; do
+            kind load docker-image $image --name weaviate-k8s
+        done
+    fi
 
     # Create namespace
     kubectl create namespace weaviate
@@ -158,11 +179,13 @@ function clean() {
 
 # Check if any options are passed
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 <options>"
+    echo "Usage: $0 <options> <flags>"
     echo "options:"
     echo "         setup"
     echo "         clean"
     echo "         upgrade"
+    echo "flags:"
+    echo "         --local-images (optional) [Upload local images to the cluster]"
     exit 1
 fi
 
@@ -175,13 +198,20 @@ for requirement in "${REQUIREMENTS[@]}"; do
   fi
 done
 
+# Add an optional second argument --local-images (defaults to false) which allows uploading the local images to the cluster using 
+# kind load docker-image <image-name> --name weaviate-k8s
+LOCAL_IMAGES=""
+if [ $# -ge 2 ] && [ "$2" == "--local-images" ]; then
+    LOCAL_IMAGES="--local-images"
+fi
+
 # Process command line options
 case $1 in
     "setup")
-        setup
+        setup $LOCAL_IMAGES
         ;;
     "upgrade")
-        upgrade_to_raft
+        upgrade_to_raft $LOCAL_IMAGES
         ;;
     "clean")
         clean
@@ -191,6 +221,7 @@ case $1 in
         exit 1
         ;;
 esac
+
 
 # Retrieve Weaviate logs
 if [ $? -ne 0 ]; then
