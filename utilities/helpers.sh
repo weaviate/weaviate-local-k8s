@@ -1,44 +1,93 @@
+function echo_green() {
+    green='\033[0;32m'
+    nc='\033[0m'
+    echo -e "${green}${*}${nc}"
+}
+
+function echo_yellow() {
+    yellow='\033[0;33m'
+    nc='\033[0m'
+    echo -e "${yellow}${*}${nc}"
+}
+
+function echo_red() {
+    red='\033[0;31m'
+    nc='\033[0m'
+    echo -e "${red}${*}${nc}"
+}
 
 function wait_weaviate() {
-  echo "Wait for Weaviate to be ready"
-  for _ in {1..120}; do
-    if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
-      echo "Weaviate is ready"
-      break
-    fi
+    weaviate_ready="false"
+    echo_green "Wait for Weaviate to be ready"
+    for _ in {1..120}; do
+        if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
+            weaviate_ready="true"
+        fi
 
-    echo "Weaviate is not ready, trying again in 1s"
-    sleep 1
-  done
+        if [ "$weaviate_ready" == "true" ]; then
+            if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
+                if [ "$(curl -sf localhost:${WEAVIATE_PORT}/v1/cluster/statistics | jq ".ready")" == "true" ]; then
+                    echo_green "Weaviate is ready"
+                    break
+                fi
+            else
+                echo_green "Weaviate is ready"
+                break
+            fi
+        fi
+
+        echo_yellow "Weaviate is not ready, trying again in 1s"
+        sleep 1
+    done
 }
 
 function wait_cluster_join() {
     node=$1
 
-    echo "Wait for node ${node} to join the cluster"
+    echo_green "Wait for node ${node} to join the cluster"
     for _ in {1..120}; do
-        if curl -sf localhost:8080/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
-            echo "Node ${node} has joined the cluster"
+        if curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+            echo_green "Node ${node} has joined the cluster"
             break
         fi
 
-        echo "Node ${node} has not joined the cluster, trying again in 1s"
+        echo_yellow "Node ${node} has not joined the cluster, trying again in 1s"
         sleep 1
     done
-
 }
 
-# This auxiliary function returns the number of voters based on the number of nodes, passing the number of nodes as an argument.
-function get_voters() {
-    if [[ $1 -ge 10 ]]; then
-        echo 7
-    elif [[ $1 -ge 7 && $1 -lt 10 ]]; then
-        echo 5
-    elif [[ $1 -ge 3 && $1 -lt 7 ]]; then
-        echo 3
+function is_node_healthy() {
+    node=$1
+    if curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+        echo "true"
     else
-        echo 1
+        echo "false"
     fi
+}
+
+function wait_for_all_healthy_nodes() {
+    replicas=$1
+    echo_green "Wait for all Weaviate $replicas nodes in cluster"
+    for _ in {1..120}; do
+        healty_nodes=0
+        for i in $(seq 0 $((replicas-1))); do
+            node="weaviate-$i"
+            is_healthy=$(is_node_healthy $node)
+            if [ "$is_healthy" == "true" ]; then
+                healty_nodes=$((healty_nodes+1))
+            else
+                echo_yellow "Weaviate node $node is not healthy"
+            fi
+        done
+
+        if [ "$healty_nodes" == "$replicas" ]; then
+            echo_green "All Weaviate $replicas nodes in cluster are healthy"
+            break
+        fi
+
+        echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 1s"
+        sleep 1
+    done
 }
 
 function port_forward_to_weaviate() {
@@ -67,7 +116,7 @@ function port_forward_to_weaviate() {
             OS_ID="linux"
             ARCH_ID="arm64"
         else
-            echo "Unsupported operating system or architecture"
+            echo_red "Unsupported operating system or architecture"
             exit 1
         fi
 
@@ -85,14 +134,13 @@ function port_forward_to_weaviate() {
 }
 
 function generate_helm_values() {
-
     local helm_values="--set image.tag=$WEAVIATE_VERSION \
-                      --set replicas=$REPLICAS \
-                      --set grpcService.enabled=true \
-                      --set env.RAFT_BOOTSTRAP_EXPECT=$(get_voters $REPLICAS) \
-                      --set env.LOG_LEVEL=debug \
-                      --set env.DISABLE_RECOVERY_ON_PANIC=true \
-                      --set env.DISABLE_TELEMETRY=true"
+                        --set replicas=$REPLICAS \
+                        --set grpcService.enabled=true \
+                        --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
+                        --set env.LOG_LEVEL=info \
+                        --set env.DISABLE_RECOVERY_ON_PANIC=true \
+                        --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
@@ -104,15 +152,16 @@ function generate_helm_values() {
         for MODULE in "${MODULES_ARRAY[@]}"; do
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
+            if [[ $MODULE == "text2vec-transformers" ]]; then
+                helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
+            fi
         done
     fi
 
     echo "$helm_values"
 }
 
-
 function setup_helm () {
-
     if [ $# -eq 0 ]; then
         HELM_BRANCH=""
     else
@@ -134,5 +183,4 @@ function setup_helm () {
         helm repo add weaviate https://weaviate.github.io/weaviate-helm
         TARGET="weaviate/weaviate"
     fi
-
 }
