@@ -24,6 +24,7 @@ WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 MODULES=${MODULES:-""}
 HELM_BRANCH=${HELM_BRANCH:-""}
+VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"true"}
 REPLICAS=${REPLICAS:-1}
 PROMETHEUS_PORT=9091
@@ -67,8 +68,6 @@ function upgrade() {
     fi
 
     HELM_VALUES=$(generate_helm_values)
-    # Configure parallel upgrade, instead of default rolling update
-    # HELM_VALUES="$HELM_VALUES --set updateStrategy.rollingUpdate.maxUnavailable=100%"
 
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
@@ -94,6 +93,8 @@ function upgrade() {
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
+    # Check if Raft schema is in sync
+    wait_for_raft_sync
     echo_green "upgrade # Success"
 }
 
@@ -108,7 +109,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: weaviate-k8s
 nodes:
 - role: control-plane
-$(for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
+$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
 EOF
 
     echo_green "setup # Create local k8s cluster"

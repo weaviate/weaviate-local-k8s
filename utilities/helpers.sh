@@ -90,6 +90,34 @@ function wait_for_all_healthy_nodes() {
     done
 }
 
+function wait_for_raft_sync() {
+    if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
+        echo_green "Wait for Weaviate Raft schema to be in sync"
+        nodes_count=$(curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq '.nodes | length')
+        declare -A nodes
+        declare -A applied_indexes
+        for _ in {1..2400}; do
+            statistics=$(curl -sf localhost:8080/v1/cluster/statistics)
+            id=$(echo $statistics | jq '.id')
+            applied_index=$(echo $statistics | jq '.raft.applied_index')
+            nodes[$id]=$applied_index
+            if [ "${#nodes[@]}" == "$nodes_count" ]; then
+                applied_indexes=()
+                for val in "${nodes[@]}"; do
+                    applied_indexes[$val]=$val
+                done
+                if [ "${#applied_indexes[@]}" == "1" ]; then
+                    echo_green "Weaviate Raft cluster is in sync"
+                    break
+                else
+                    echo_yellow "Raft schema is out of sync, trying again in 0.5s"
+                fi
+            fi
+            sleep 0.5
+        done
+    fi
+}
+
 function port_forward_to_weaviate() {
     # Install kube-relay tool to perform port-forwarding
     # Check if kubectl-relay binary is available
@@ -153,9 +181,14 @@ function generate_helm_values() {
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
-                helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
+                helm_values="${helm_values} --set modules.${MODULE}.tag=snowflake-snowflake-arctic-embed-xs-onnx"
             fi
         done
+    fi
+
+    # Check if VALUES_INLINE variable is not empty
+    if [ "$VALUES_INLINE" != "" ]; then
+        helm_values="$helm_values $VALUES_INLINE"
     fi
 
     echo "$helm_values"

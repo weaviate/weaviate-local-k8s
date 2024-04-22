@@ -38,6 +38,14 @@ inputs:
     description: 'Override values for the Helm chart in YAML string'
     required: false
     default: ''
+  values-inline:
+    description: 'Override values for the Helm chart in inline form'
+    required: false
+    default: ''
+  delete-sts:
+    description: 'Configure either Weaviate Statefulset should be removed'
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -60,6 +68,7 @@ runs:
         MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
         DELETE_STS: ${{ inputs.delete-sts }}
+        VALUES_INLINE: ${{ inputs.values-inline }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
