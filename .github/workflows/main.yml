@@ -10,8 +10,11 @@ jobs:
         REPLICAS: '5'
         WEAVIATE_VERSION: '1.24.3'
       steps:
-        - id: invoke-local-k8s
-          uses: weaviate/weaviate-local-k8s@main
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
           with:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
@@ -41,7 +44,7 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '6'
-        WEAVIATE_VERSION: 'preview--0952f59'
+        WEAVIATE_VERSION: '1.25.0-raft-3d408cc'
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'raft-configuration'
@@ -51,8 +54,11 @@ jobs:
           env:
             ASYNC_INDEXING: true
       steps:
-        - id: invoke-local-k8s
-          uses: weaviate/weaviate-local-k8s@main
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
           with:
               workers: ${{ env.WORKERS }}
               replicas: ${{ env.REPLICAS }}
@@ -75,8 +81,8 @@ jobs:
               fi
               versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "1.24.2" ]]; then
-                      echo "Error: Version is not equal to 1.24.2. Found $version"
+                  if [[ "$version" != "1.25.0-raft" ]]; then
+                      echo "Error: Version is not equal to 1.25.0-raft. Found $version"
                       exit 1
                   fi
               done
@@ -88,8 +94,11 @@ jobs:
           REPLICAS: '1'
           WEAVIATE_VERSION: 'idontexist_youdidntseeme'
       steps:
-        - id: invoke-local-k8s
-          uses: weaviate/weaviate-local-k8s@main
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
           with:
               workers: ${{ env.WORKERS }}
               replicas: ${{ env.REPLICAS }}
@@ -116,8 +125,11 @@ jobs:
         WEAVIATE_VERSION: '1.24.4'
         MODULES: 'text2vec-contextionary'
       steps:
-        - id: invoke-local-k8s
-          uses: weaviate/weaviate-local-k8s@main
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
           with:
               workers: ${{ env.WORKERS }}
               replicas: ${{ env.REPLICAS }}
@@ -153,23 +165,25 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '5'
-        WEAVIATE_VERSION: '1.24.6'
+        WEAVIATE_VERSION: '1.24.9'
       steps:
-        - name: Create ${{ env.WEAVIATE_VERSION }} Weaviate cluster with ${{ env.WORKERS }} workers and ${{ env.REPLICAS }} replicas
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
           id: invoke-local-k8s
-          uses: weaviate/weaviate-local-k8s@main
+          uses: ./
           with:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
-        - name: Upgrade cluster to RAFT.
-          uses: weaviate/weaviate-local-k8s@main
+        - name: Upgrade weaviate-local-k8s to RAFT from current branch.
+          uses: ./
           with:
             operation: upgrade
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             helm-branch: 'raft-configuration'
-            weaviate-version: "preview--21c08df"
+            weaviate-version: "1.25.0-raft-3d408cc"
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -184,8 +198,8 @@ jobs:
             fi
             versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
             for version in `echo $versions | tr '\n' ' '`; do
-                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
-                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                if [[ "$version" != "1.25.0-raft" ]]; then
+                    echo "Error: Version is not equal to 1.25.0-raft. Found $version"
                     exit 1
                 fi
             done
