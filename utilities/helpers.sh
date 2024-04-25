@@ -128,7 +128,7 @@ function port_forward_to_weaviate() {
         # Retrieve the processor architecture
         ARCH=$(uname -m)
 
-        VERSION="v0.0.6"
+        VERSION="v0.0.10"
 
         # Determine the download URL based on the OS and ARCH
         if [[ $OS == "Darwin" && $ARCH == "x86_64" ]]; then
