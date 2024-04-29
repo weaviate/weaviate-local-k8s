@@ -94,7 +94,7 @@ function upgrade() {
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
     # Check if Raft schema is in sync
-    wait_for_raft_sync
+    wait_for_raft_sync $REPLICAS
     echo_green "upgrade # Success"
 }
 
