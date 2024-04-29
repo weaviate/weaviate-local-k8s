@@ -29,6 +29,8 @@ REPLICAS=${REPLICAS:-1}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
+TENANT_CONTROLLER_BRANCH=${TENANT_CONTROLLER_BRANCH:-"main"}
+
 # Array with the images to be used in the local k8s cluster
 WEAVIATE_IMAGES=(
     "semitechnologies/weaviate:${WEAVIATE_VERSION}"
@@ -126,6 +128,7 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
+    setup_tenant_controller $TENANT_CONTROLLER_BRANCH
     # This function sets up weaviate-helm and sets the global env var $TARGET 
     setup_helm $HELM_BRANCH
 

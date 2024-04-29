@@ -140,7 +140,9 @@ function generate_helm_values() {
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
                         --set env.LOG_LEVEL=info \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
-                        --set env.DISABLE_TELEMETRY=true"
+                        --set env.DISABLE_TELEMETRY=true \
+                        --set env.PROMETHEUS_MONITORING_GROUP=true \
+                        --set env.PROMETHEUS_MONITORING_ENABLED=true "
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
@@ -183,4 +185,36 @@ function setup_helm () {
         helm repo add weaviate https://weaviate.github.io/weaviate-helm
         TARGET="weaviate/weaviate"
     fi
+}
+
+function setup_tenant_controller () {
+    if [ $# -eq 0 ]; then
+        TENANT_CONTROLLER_BRANCH="main"
+    else
+        TENANT_CONTROLLER_BRANCH=$1
+    fi
+
+
+    TENANT_CONTROLLER_DIR="/tmp/tenant-controller"
+    # Delete $TENANT_CONTROLLER_DIR if it already exists
+    if [ -d "$TENANT_CONTROLLER_DIR" ]; then
+        rm -rf "$TENANT_CONTROLLER_DIR"
+    fi
+    # Download tenant-controller repository master branch
+    git clone -b $TENANT_CONTROLLER_BRANCH git@github.com:weaviate/tenant-controller.git $TENANT_CONTROLLER_DIR
+
+    # Build tenant-controller image
+    echo "Building tenant-controller image"
+    docker build -t w.cr/foo/tenant-controller $TENANT_CONTROLLER_DIR/
+
+    # Push image to kind cluster
+    kind load docker-image w.cr/foo/tenant-controller --name weaviate-k8s
+    echo "Applying tenant-controller deployment"
+    IMAGE="w.cr/foo/tenant-controller" envsubst < $TENANT_CONTROLLER_DIR/k8s/manifests.yaml | kubectl apply -f -
+
+    # Wait for tenant-controller to be ready in namespace weaviate
+    echo "Waiting for tenant-controller to be ready"
+    kubectl wait --for=condition=available --timeout=120s deployment/tenant-controller-deployment -n weaviate
+
+    echo "Tenant-controller is ready"
 }
