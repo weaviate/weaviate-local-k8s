@@ -44,10 +44,10 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '6'
-        WEAVIATE_VERSION: '1.25.0-raft-3d408cc'
+        WEAVIATE_VERSION: '1.25.0-raft-6ea573b'
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
-        HELM_BRANCH: 'raft-configuration'
+        HELM_BRANCH: 'master'
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -182,8 +182,8 @@ jobs:
             operation: upgrade
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
-            helm-branch: 'raft-configuration'
-            weaviate-version: "1.25.0-raft-3d408cc"
+            helm-branch: 'master'
+            weaviate-version: "1.25.0-raft-6ea573b"
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
