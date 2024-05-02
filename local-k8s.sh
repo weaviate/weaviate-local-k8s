@@ -88,6 +88,8 @@ function upgrade() {
     TIMEOUT=$(get_timeout)
     echo_green "upgrade # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
+    echo_green "upgrade # Waiting for rollout upgrade to be over"
+    kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate
     wait_weaviate
 
