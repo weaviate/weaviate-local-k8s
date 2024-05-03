@@ -17,23 +17,11 @@ function echo_red() {
 }
 
 function wait_weaviate() {
-    weaviate_ready="false"
     echo_green "Wait for Weaviate to be ready"
     for _ in {1..120}; do
         if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
-            weaviate_ready="true"
-        fi
-
-        if [ "$weaviate_ready" == "true" ]; then
-            if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
-                if [ "$(curl -sf localhost:${WEAVIATE_PORT}/v1/cluster/statistics | jq ".ready")" == "true" ]; then
-                    echo_green "Weaviate is ready"
-                    break
-                fi
-            else
-                echo_green "Weaviate is ready"
-                break
-            fi
+            echo_green "Weaviate is ready"
+            break
         fi
 
         echo_yellow "Weaviate is not ready, trying again in 1s"
@@ -85,35 +73,27 @@ function wait_for_all_healthy_nodes() {
             break
         fi
 
-        echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 1s"
-        sleep 1
+        echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 2s"
+        sleep 2
     done
 }
 
 function wait_for_raft_sync() {
+    nodes_count=$1
     if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
         echo_green "Wait for Weaviate Raft schema to be in sync"
-        nodes_count=$(curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq '.nodes | length')
-        declare -A nodes
-        declare -A applied_indexes
-        for _ in {1..2400}; do
-            statistics=$(curl -sf localhost:8080/v1/cluster/statistics)
-            id=$(echo $statistics | jq '.id')
-            applied_index=$(echo $statistics | jq '.raft.applied_index')
-            nodes[$id]=$applied_index
-            if [ "${#nodes[@]}" == "$nodes_count" ]; then
-                applied_indexes=()
-                for val in "${nodes[@]}"; do
-                    applied_indexes[$val]=$val
-                done
-                if [ "${#applied_indexes[@]}" == "1" ]; then
-                    echo_green "Weaviate Raft cluster is in sync"
-                    break
-                else
-                    echo_yellow "Raft schema is out of sync, trying again in 0.5s"
-                fi
+        for _ in {1..1200}; do
+            statistics=$(curl -sf http://localhost:${WEAVIATE_PORT}/v1/cluster/statistics)
+            count=$(echo $statistics | jq '.statistics | length')
+            synchronized=$(echo $statistics | jq '.synchronized')
+            if [ "$count" == "$nodes_count" ] && [ "$synchronized" == "true" ]; then
+                echo_green "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized."
+                echo_green "Weaviate Raft cluster is in sync"
+                break
             fi
-            sleep 0.5
+            echo_yellow "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized..."
+            echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
+            sleep 2
         done
     fi
 }
