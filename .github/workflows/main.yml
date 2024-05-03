@@ -44,7 +44,7 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '6'
-        WEAVIATE_VERSION: '1.25.0-raft-6ea573b'
+        WEAVIATE_VERSION: '1.25.0-rc.0'
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'master'
@@ -81,8 +81,8 @@ jobs:
               fi
               versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "1.25.0-raft" ]]; then
-                      echo "Error: Version is not equal to 1.25.0-raft. Found $version"
+                  if [[ "$version" != "1.25.0-rc.0" ]]; then
+                      echo "Error: Version is not equal to 1.25.0-rc.0. Found $version"
                       exit 1
                   fi
               done
@@ -182,8 +182,9 @@ jobs:
             operation: upgrade
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
+            delete-sts: 'true'
             helm-branch: 'master'
-            weaviate-version: "1.25.0-raft-6ea573b"
+            weaviate-version: "1.25.0-rc.0"
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -198,8 +199,8 @@ jobs:
             fi
             versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
             for version in `echo $versions | tr '\n' ' '`; do
-                if [[ "$version" != "1.25.0-raft" ]]; then
-                    echo "Error: Version is not equal to 1.25.0-raft. Found $version"
+                if [[ "$version" != "1.25.0-rc.0" ]]; then
+                    echo "Error: Version is not equal to 1.25.0-rc.0. Found $version"
                     exit 1
                 fi
             done

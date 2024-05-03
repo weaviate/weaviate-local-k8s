@@ -45,7 +45,7 @@ inputs:
   delete-sts:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
-    default: 'true'
+    default: 'false'
 
 runs:
   using: 'composite'
