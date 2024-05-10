@@ -194,6 +194,7 @@ function setup_helm () {
         TARGET=${WEAVIATE_HELM_DIR}/weaviate-*.tgz
     else
         helm repo add weaviate https://weaviate.github.io/weaviate-helm
+        helm repo update
         TARGET="weaviate/weaviate"
     fi
 }
