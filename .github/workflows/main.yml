@@ -44,7 +44,7 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '6'
-        WEAVIATE_VERSION: '1.25.0-rc.0'
+        WEAVIATE_VERSION: '1.25.0'
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'master'
@@ -53,6 +53,7 @@ jobs:
             size: 50Gi
           env:
             ASYNC_INDEXING: true
+        VALUES_INLINE: '--set env.PERSISTENCE_LSM_ACCESS_STRATEGY=pread'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -67,6 +68,7 @@ jobs:
               weaviate-grpc-port: ${{ env.WEAVIATE_GRPC_PORT }}
               helm-branch: ${{ env.HELM_BRANCH }}
               values-override: ${{ env.VALUES_OVERRIDE }}
+              values-inline: ${{ env.VALUES_INLINE }}
         - name: Check the configured values
           run: |
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -81,11 +83,21 @@ jobs:
               fi
               versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "1.25.0-rc.0" ]]; then
-                      echo "Error: Version is not equal to 1.25.0-rc.0. Found $version"
+                  if [[ "$version" != "1.25.0" ]]; then
+                      echo "Error: Version is not equal to 1.25.0. Found $version"
                       exit 1
                   fi
               done
+              env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ASYNC_INDEXING")].value}')
+              if [[ "$env_value" != "true" ]]; then
+                  echo "Error: env.ASYNC_INDEXING is not equal to true. Found $env_value"
+                  exit 1
+              fi
+              env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PERSISTENCE_LSM_ACCESS_STRATEGY")].value}')
+              if [[ "$env_value" != "pread" ]]; then
+                  echo "Error: env.PERSISTENCE_LSM_ACCESS_STRATEGY is not equal to pread. Found $env_value"
+                  exit 1
+              fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
       name: Create a single-node Weaviate cluster with non existing image.
@@ -161,11 +173,13 @@ jobs:
               fi
     run-weaviate-local-k8s-upgrade:
       runs-on: ubuntu-latest
-      name: Invoke weaviate-local-k8s upgrade to RAFT with basic parameters
+      name: Invoke weaviate-local-k8s upgrade from non-RAFT to non-RAFT with basic parameters
       env:
-        WORKERS: '3'
-        REPLICAS: '5'
+        WORKERS: '2'
+        REPLICAS: '2'
         WEAVIATE_VERSION: '1.24.9'
+        UPGRADE_VERSION: '1.24.11'
+        HELM_BRANCH: 'v16.8.8'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -175,16 +189,16 @@ jobs:
           with:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
+            helm-branch: ${{ env.HELM_BRANCH }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
-        - name: Upgrade weaviate-local-k8s to RAFT from current branch.
+        - name: Upgrade weaviate-local-k8s to non-RAFT from current branch.
           uses: ./
           with:
             operation: upgrade
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
-            delete-sts: 'true'
-            helm-branch: 'master'
-            weaviate-version: "1.25.0-rc.0"
+            helm-branch: ${{ env.HELM_BRANCH }}
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -199,8 +213,55 @@ jobs:
             fi
             versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
             for version in `echo $versions | tr '\n' ' '`; do
-                if [[ "$version" != "1.25.0-rc.0" ]]; then
-                    echo "Error: Version is not equal to 1.25.0-rc.0. Found $version"
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+    run-weaviate-local-k8s-raft-upgrade:
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s upgrade to RAFT with basic parameters
+      env:
+        WORKERS: '3'
+        REPLICAS: '5'
+        WEAVIATE_VERSION: '1.24.9'
+        UPGRADE_VERSION: '1.25.0'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            helm-branch: 'v16.8.8'
+        - name: Upgrade weaviate-local-k8s to RAFT from current branch.
+          uses: ./
+          with:
+            operation: upgrade
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            delete-sts: 'true'
+            helm-branch: 'master'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+        - name: Check the configured values
+          run: |
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
                     exit 1
                 fi
             done
