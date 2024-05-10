@@ -17,23 +17,11 @@ function echo_red() {
 }
 
 function wait_weaviate() {
-    weaviate_ready="false"
     echo_green "Wait for Weaviate to be ready"
     for _ in {1..120}; do
         if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
-            weaviate_ready="true"
-        fi
-
-        if [ "$weaviate_ready" == "true" ]; then
-            if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
-                if [ "$(curl -sf localhost:${WEAVIATE_PORT}/v1/cluster/statistics | jq ".ready")" == "true" ]; then
-                    echo_green "Weaviate is ready"
-                    break
-                fi
-            else
-                echo_green "Weaviate is ready"
-                break
-            fi
+            echo_green "Weaviate is ready"
+            break
         fi
 
         echo_yellow "Weaviate is not ready, trying again in 1s"
@@ -85,9 +73,29 @@ function wait_for_all_healthy_nodes() {
             break
         fi
 
-        echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 1s"
-        sleep 1
+        echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 2s"
+        sleep 2
     done
+}
+
+function wait_for_raft_sync() {
+    nodes_count=$1
+    if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
+        echo_green "Wait for Weaviate Raft schema to be in sync"
+        for _ in {1..1200}; do
+            statistics=$(curl -sf http://localhost:${WEAVIATE_PORT}/v1/cluster/statistics)
+            count=$(echo $statistics | jq '.statistics | length')
+            synchronized=$(echo $statistics | jq '.synchronized')
+            if [ "$count" == "$nodes_count" ] && [ "$synchronized" == "true" ]; then
+                echo_green "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized."
+                echo_green "Weaviate Raft cluster is in sync"
+                break
+            fi
+            echo_yellow "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized..."
+            echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
+            sleep 2
+        done
+    fi
 }
 
 function port_forward_to_weaviate() {
@@ -100,7 +108,7 @@ function port_forward_to_weaviate() {
         # Retrieve the processor architecture
         ARCH=$(uname -m)
 
-        VERSION="v0.0.6"
+        VERSION="v0.0.10"
 
         # Determine the download URL based on the OS and ARCH
         if [[ $OS == "Darwin" && $ARCH == "x86_64" ]]; then
@@ -153,9 +161,14 @@ function generate_helm_values() {
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
-                helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
+                helm_values="${helm_values} --set modules.${MODULE}.tag=snowflake-snowflake-arctic-embed-xs-onnx"
             fi
         done
+    fi
+
+    # Check if VALUES_INLINE variable is not empty
+    if [ "$VALUES_INLINE" != "" ]; then
+        helm_values="$helm_values $VALUES_INLINE"
     fi
 
     echo "$helm_values"
