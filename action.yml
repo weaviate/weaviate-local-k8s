@@ -54,6 +54,7 @@ runs:
       uses: actions/checkout@v2
     - name: Create values-override.yaml
       shell: bash
+      if: ${{ inputs.values-override != '' }}
       run: |
         echo "${{ inputs.values-override }}" > ${{ github.action_path }}/values-override.yaml
     - name: Deploy local kubernetes cluster

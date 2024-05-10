@@ -244,7 +244,6 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             delete-sts: 'true'
-            helm-branch: 'master'
             weaviate-version: ${{ env.UPGRADE_VERSION }}
         - name: Check the configured values
           run: |
