@@ -49,6 +49,9 @@ function get_timeout() {
 function upgrade() {
     echo_green "upgrade # Upgrading to Weaviate ${WEAVIATE_VERSION}"
 
+    # Make sure to set the right context
+    kubectl config set-context kind-weaviate-k8s
+
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         echo_green "Uploading local images to the cluster"
@@ -129,7 +132,7 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
-    # This function sets up weaviate-helm and sets the global env var $TARGET 
+    # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
     VALUES_OVERRIDE=""
@@ -168,6 +171,9 @@ function clean() {
 
     # Kill kubectl port-forward processes running in the background
     pkill -f "kubectl-relay" || true
+
+    # Make sure to set the right context
+    kubectl config set-context kind-weaviate-k8s
 
     # Check if Weaviate release exists
     if helm status weaviate -n weaviate &> /dev/null; then
@@ -213,7 +219,7 @@ for requirement in "${REQUIREMENTS[@]}"; do
     fi
 done
 
-# Add an optional second argument --local-images (defaults to false) which allows uploading the local images to the cluster using 
+# Add an optional second argument --local-images (defaults to false) which allows uploading the local images to the cluster using
 # kind load docker-image <image-name> --name weaviate-k8s
 LOCAL_IMAGES=""
 if [ $# -ge 2 ] && [ "$2" == "--local-images" ]; then
