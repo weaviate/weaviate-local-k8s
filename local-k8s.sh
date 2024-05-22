@@ -13,6 +13,7 @@ REQUIREMENTS=(
     "kubectl"
     "curl"
     "nohup"
+    "jq"
 )
 
 # NOTE: If triggering some of the scripts locally on Mac, you might find an error from the test complaining
