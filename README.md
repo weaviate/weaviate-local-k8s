@@ -19,7 +19,7 @@ To use this action in your GitHub Actions workflow, you can add the following st
 
 ```yaml
 - name: Deploy Weaviate to local Kubernetes
-  uses: weaviate/weaviate-local-k8s@v1
+  uses: weaviate/weaviate-local-k8s@v2
   with:
     weaviate-port: '8080'
     weaviate-grpc-port: '50051'
