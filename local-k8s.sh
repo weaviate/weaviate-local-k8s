@@ -24,6 +24,8 @@ REQUIREMENTS=(
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 MODULES=${MODULES:-""}
+ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
+S3_OFFLOAD=${S3_OFFLOAD:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
@@ -59,6 +61,11 @@ function upgrade() {
         for image in "${WEAVIATE_IMAGES[@]}"; do
             kind load docker-image $image --name weaviate-k8s
         done
+    fi
+
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+        # if the minio pod is not running, start it
+        kubectl get pod -n weaviate minio &> /dev/null || startup_minio
     fi
 
     # This function sets up weaviate-helm and sets the global env var $TARGET
@@ -133,6 +140,10 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+        startup_minio
+    fi
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -155,6 +166,30 @@ EOF
     $VALUES_OVERRIDE
     #--set debug=true
 
+    if [[ $S3_OFFLOAD == "true" ]]; then
+        echo_green "setup # Enabling the offload-s3 module in ENABLE_MODULES variable"
+        # Fetch the current value of ENABLE_MODULES from the StatefulSet
+        CURRENT_VALUE=$(kubectl get sts/weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_MODULES")].value}')
+
+        # Define the new value to append
+        NEW_VALUE="offload-s3"
+
+        # Check if the NEW_VALUE is already in the CURRENT_VALUE
+        if [[ "${CURRENT_VALUE}" == *"${NEW_VALUE}"* ]]; then
+            echo "The value '${NEW_VALUE}' is already present in ENABLE_MODULES."
+        else
+            # Append the new value
+            UPDATED_VALUE="${CURRENT_VALUE},${NEW_VALUE}"
+
+            # Find the index of ENABLE_MODULES in the env array
+            INDEX=$(kubectl get sts/weaviate -n weaviate -o json | jq -r '.spec.template.spec.containers[0].env | to_entries | map(select(.value.name == "ENABLE_MODULES")) | .[0].key')
+
+            # Update the StatefulSet with the new value
+            kubectl patch sts/weaviate -n weaviate --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/env/'"${INDEX}"'/value", "value": "'${UPDATED_VALUE}'"}]'
+
+            echo "Updated ENABLE_MODULES to: ${UPDATED_VALUE}"
+        fi
+    fi
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
@@ -180,6 +215,10 @@ function clean() {
     if helm status weaviate -n weaviate &> /dev/null; then
         # Uninstall Weaviate using Helm
         helm uninstall weaviate -n weaviate
+    fi
+
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP ]]; then
+        shutdown_minio
     fi
 
     # Check if Weaviate namespace exists
