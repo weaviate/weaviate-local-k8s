@@ -15,7 +15,7 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **delete-sts**: Allows deleting the Weaviate statefulset before perfoming an upgrade operation. Required for the upgrade from non-RAFT (pre-1.25) to RAFT (1.25)
 - **enable-backup**: When set to true it configures Weaviate to support S3 backups using MinIO. Refer to the [backup and restore](https://weaviate.io/developers/weaviate/configuration/backups#) documentation for more information.
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
-- **expose-pods**: Allows accessing each of the weaviate pods on a port number (default: false). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc...
+- **expose-pods**: Allows accessing each of the weaviate pods port numbers: http, grpc, metrics and profiler (default: true). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc... The same applies for the gRPC port, so weaviate-0 is exposed on 50052, weaviate-1 in 50053, weaviate-2 in 50054, etc... Similar for metrics, so weaviate-0 is exposed on 2113, weaviate-1 in 2114, weaviate-2 in 2115, etc... and for profiler, so weaviate-0 is exposed on 6061, weaviate-1 in 6062, weaviate-2 in 6063, etc...
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
 - **rbac-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
@@ -81,7 +81,7 @@ WEAVIATE_VERSION="1.24.4" REPLICAS=3 ./local-k8s.sh setup
 WORKERS=2 WEAVIATE_VERSION="1.24.8" REPLICAS=3 ./local-k8s.sh setup --local-images
 
 # Upgrade Weaviate to RAFT configuration
-WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" REPLICAS=3 ./local-k8s.sh upgrade
+WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" EXPOSE_PODS=false REPLICAS=3 ./local-k8s.sh upgrade
 
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
@@ -98,7 +98,7 @@ The environment variables that can be passed are:
 - **MODULES**
 - **RBAC**
 - **AUTH_CONFIG**
-
+- **EXPOSE_PODS**
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
 WEAVIATE_VERSION="preview--d58d616" REPLICAS=5 WORKERS=3 HELM_BRANCH="raft-configuration" WEAVIATE_PORT="8081" ./local-k8s.sh setup

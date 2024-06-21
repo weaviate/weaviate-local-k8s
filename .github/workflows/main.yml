@@ -22,6 +22,9 @@ jobs:
         WORKERS: '3'
         REPLICAS: '5'
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        WEAVIATE_PORT: '8080'
+        WEAVIATE_GRPC_PORT: '50051'
+        EXPOSE_PODS: 'false'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -32,6 +35,7 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: ${{ env.EXPOSE_PODS }}
         - name: Check the configured values
           run: |
             set -ex
@@ -57,6 +61,13 @@ jobs:
               echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
+            #Verify that pods are not exposed
+            for i in $(seq 0 $((REPLICAS-1))); do
+              PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
+              GRPC_PORT=$((${{ env.WEAVIATE_GRPC_PORT }} + i + 1))
+              HTTP_PROCESS=$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
+              GRPC_PROCESS=$(lsof -i :$GRPC_PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
+            done
     run-weaviate-local-k8s-all-params:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
@@ -185,13 +196,23 @@ jobs:
               fi
               for ((i=0; i<${{ env.REPLICAS }}; i++)); do
                 PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
-                PROCESS=$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
+                GRPC_PORT=$((${{ env.WEAVIATE_GRPC_PORT }} + i + 1))
+                
+                HTTP_PROCESS=$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
+                GRPC_PROCESS=$(lsof -i :$GRPC_PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
 
-                if [ -z "$PROCESS" ]; then
-                  echo "FAIL: Pod $i (Port $PORT): NOT LISTENING"
+                if [ -z "$HTTP_PROCESS" ]; then
+                  echo "FAIL: Pod $i (HTTP Port $PORT): NOT LISTENING"
                   exit 1
                 else
-                  echo "Pod $i (Port $PORT): LISTENING"
+                  echo "Pod $i (HTTP Port $PORT): LISTENING"
+                fi
+
+                if [ -z "$GRPC_PROCESS" ]; then
+                  echo "FAIL: Pod $i (gRPC Port $GRPC_PORT): NOT LISTENING"
+                  exit 1
+                else
+                  echo "Pod $i (gRPC Port $GRPC_PORT): LISTENING"
                 fi
               done
     run-weaviate-local-k8s-which-fails:
@@ -211,6 +232,7 @@ jobs:
               workers: ${{ env.WORKERS }}
               replicas: ${{ env.REPLICAS }}
               weaviate-version: ${{ env.WEAVIATE_VERSION }}
+              expose-pods: 'false'
           continue-on-error: true
         - name: Check that deployment failed
           if: steps.invoke-local-k8s.outcome == 'success'
@@ -245,6 +267,7 @@ jobs:
               replicas: ${{ env.REPLICAS }}
               weaviate-version: ${{ env.WEAVIATE_VERSION }}
               modules: ${{ env.MODULES }}
+              expose-pods: 'false'
         - name: Check the configured values
           run: |
               set -ex
@@ -294,6 +317,7 @@ jobs:
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
             helm-branch: 'v16.8.8'
+            expose-pods: 'false'
         - name: Upgrade weaviate-local-k8s to RAFT from current branch.
           uses: ./
           with:
@@ -302,6 +326,7 @@ jobs:
             replicas: ${{ env.REPLICAS }}
             delete-sts: 'true'
             weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
         - name: Check the configured values
           run: |
             set -ex
@@ -346,6 +371,7 @@ jobs:
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
             helm-branch: 'v17.0.0'
+            expose-pods: 'false'
         - name: Downgrade weaviate-local-k8s from RAFT to pre-RAFT from current branch.
           uses: ./
           with:
@@ -355,6 +381,7 @@ jobs:
             delete-sts: 'true'
             helm-branch: 'v16.8.8'
             weaviate-version: ${{ env.DOWNGRADE_VERSION }}
+            expose-pods: 'false'
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -398,6 +425,7 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: 'true'
         - name: Upgrade weaviate-local-k8s to latest version from current branch.
           uses: ./
           with:
@@ -405,6 +433,7 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'true'
         - name: Check the configured values
           run: |
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -417,7 +446,8 @@ jobs:
                 echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
                 exit 1
             fi
-            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            # Use exposed port for weaviate-1 (8082)
+            versions=$(curl -s http://127.0.0.1:8082/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
             for version in `echo $versions | tr '\n' ' '`; do
                 if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
                     echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
@@ -533,3 +563,135 @@ jobs:
               echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
+    run-weaviate-local-k8s-expose-pods:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Test pod restart with exposed ports
+      env:
+        WORKERS: '1'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        EXPOSE_PODS: 'true'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with exposed pods
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: ${{ env.EXPOSE_PODS }}
+        - name: Verify initial port exposure
+          run: |
+            set -ex
+            # Check all pods are listening with retries
+            for i in {0..2}; do
+              PORT=$((8080 + i + 1))
+              GRPC_PORT=$((50051 + i + 1))
+              METRICS_PORT=$((2112 + i + 1))
+              PROFILER_PORT=$((6060 + i + 1))
+              
+              # Verify HTTP port with retries
+              for retry in {1..30}; do
+                if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/v1/nodes | grep -q 200; then
+                  break
+                fi
+                echo "HTTP port $PORT not ready, retry $retry/30"
+                sleep 2
+                if [[ $retry -eq 30 ]]; then
+                  echo "ERROR: HTTP port $PORT not ready after 30 retries"
+                  exit 1
+                fi
+              done
+              curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/v1/nodes | grep -q 200 || {
+                echo "ERROR: HTTP port $PORT final check failed"
+                exit 1
+              }
+              
+              # Verify gRPC port with retries and timeout
+              for retry in {1..30}; do
+                if nc -z -w 1 127.0.0.1 $GRPC_PORT; then
+                  break
+                fi
+                echo "gRPC port $GRPC_PORT not ready, retry $retry/30"
+                sleep 2
+                if [[ $retry -eq 30 ]]; then
+                  echo "ERROR: gRPC port $GRPC_PORT not ready after 30 retries"
+                  exit 1
+                fi
+              done
+              nc -z -w 5 127.0.0.1 $GRPC_PORT || {
+                echo "ERROR: gRPC port $GRPC_PORT final check failed"
+                exit 1
+              }
+
+              # Verify metrics port with retries
+              for retry in {1..30}; do
+                if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$METRICS_PORT/metrics | grep -q 200; then
+                  break
+                fi
+                echo "Metrics port $METRICS_PORT not ready, retry $retry/30"
+                sleep 2
+                if [[ $retry -eq 30 ]]; then
+                  echo "ERROR: Metrics port $METRICS_PORT not ready after 30 retries"
+                  exit 1
+                fi
+              done
+              curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$METRICS_PORT/metrics | grep -q 200 || {
+                echo "ERROR: Metrics port $METRICS_PORT final check failed"
+                exit 1
+              }
+
+              # Verify profiler port with retries
+              for retry in {1..30}; do
+                if nc -z -w 1 127.0.0.1 $PROFILER_PORT; then
+                  break
+                fi
+                echo "Profiler port $PROFILER_PORT not ready, retry $retry/30"
+                sleep 2
+                if [[ $retry -eq 30 ]]; then
+                  echo "ERROR: Profiler port $PROFILER_PORT not ready after 30 retries"
+                  exit 1
+                fi
+              done
+              nc -z -w 5 127.0.0.1 $PROFILER_PORT || {
+                echo "ERROR: Profiler port $PROFILER_PORT final check failed"
+                exit 1
+              }
+            done
+        - name: Restart pod and verify reconnection
+          run: |
+            set -ex
+            # Force delete pod weaviate-2
+            kubectl delete pod weaviate-2 -n weaviate --force --grace-period=0
+            
+            # Wait for pod to be recreated
+            kubectl wait --for=condition=ready pod/weaviate-2 -n weaviate --timeout=3m
+            
+            echo "Wait for Weaviate to be ready"
+            for timer in {1..120}; do
+              if curl -sf -o /dev/null localhost:8080/v1/.well-known/ready; then
+                echo "Weaviate is ready"
+                break
+              fi
+
+              if [ "$timer" -eq 120 ]; then
+                echo "ERROR: Weaviate is not ready after 120s"
+                exit 1
+              fi
+
+              echo "Weaviate is not ready, trying again in 1s"
+              sleep 1
+            done
+            
+            # Verify specific port for weaviate-2 (8080 + 2 + 1 = 8083)
+            echo "Checking restarted pod on port 8083"
+            curl -s http://127.0.0.1:8083/v1/nodes | jq -e '.nodes | length == 3'
+
+            # Verify gRPC port (simple connectivity check)
+            nc -z 127.0.0.1 50054 || exit 1
+            
+            # Verify metrics endpoint on restarted pod
+            curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics | grep 200

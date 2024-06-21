@@ -38,6 +38,7 @@ Environment Variables:
     WORKERS              Number of worker nodes in the Kind cluster (default: 0)
     REPLICAS            Number of Weaviate replicas to deploy (default: 1)
     WEAVIATE_VERSION    Specific Weaviate version to deploy (required)
+    EXPOSE_PODS         Expose the Weaviate pods on the host, for http (starts in 8081), grpc (starts in 50052), metrics (starts in 2113) and profiler (starts in 6061) ports, (default: true)
     DEBUG                Run the script in debug mode (set -x) (default: false)
 
   Network Configuration:
@@ -120,14 +121,6 @@ function wait_for_minio() {
             echo "Pod minio-mc has completed successfully."
         fi
     fi
-}
-
-function startup_ollama() {
-    echo_green "Starting up Ollama"
-    kubectl apply -f "$(dirname "$0")/manifests/ollama.yaml"
-    kubectl wait deployment/ollama -n weaviate --for=condition=Ready --timeout=60s
-    kubectl exec deployment/ollama -n weaviate -- /bin/bash -c "
-    ollama pull snowflake-arctic-embed:33m"
 }
 
 function shutdown_minio() {
@@ -341,11 +334,6 @@ function port_forward_to_weaviate() {
 
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
 
-    # Loop over replicas and port-forward to each node to port ${WEAVIATE_METRICS} + i and ${PROFILER_PORT} + i
-    for i in $(seq 0 $((replicas-1))); do
-        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_METRICS+1+i)):2112 &> /tmp/weaviate_metrics_frwd_${i}.log &
-        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((PROFILER_PORT+i)):6060 &> /tmp/weaviate_profiler_frwd_${i}.log &
-    done
 
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
@@ -353,12 +341,6 @@ function port_forward_to_weaviate() {
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
 
-    for MODULE in "${MODULES_ARRAY[@]}"; do
-        # If the module is text2vec-ollama, export the service in port 11434
-        if [[ $MODULE == "text2vec-ollama" ]]; then
-            /tmp/kubectl-relay svc/ollama -n weaviate 11434:11434 &> /tmp/ollama_frwd.log &
-        fi
-    done
 }
 
 function port_forward_weaviate_pods() {
@@ -367,11 +349,46 @@ function port_forward_weaviate_pods() {
         echo_red "kubectl-relay is not installed"
         exit 1
     fi
-    # Expose each pod on the ports coming after WEAVIATE_PORT
-    # if we have 4 replicase, weaviate-0 will be exposed on WEAVIATE_PORT+1, weaviate-1 on WEAVIATE_PORT+2, etc.
+
+    # Create individual services for each pod
+    for i in $(seq 0 $((REPLICAS-1))); do
+        kubectl apply -n weaviate -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-$i
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: weaviate-$i
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+  - name: metrics
+    port: 2112
+    targetPort: 2112
+  - name: profiler
+    port: 6060
+    targetPort: 6060
+EOF
+    done
+
+    # Forward through services instead of direct pod references
     for i in $(seq 0 $((REPLICAS-1))); do
         if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
-            /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 -n weaviate &> /tmp/weaviate_frwd_weaviate_$i.log &
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 &> /tmp/weaviate_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_GRPC_PORT+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_GRPC_PORT+i+1)):50051 &> /tmp/weaviate_grpc_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_METRICS+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_METRICS+i+1)):2112 &> /tmp/weaviate_metrics_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((PROFILER_PORT+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((PROFILER_PORT+i+1)):6060 &> /tmp/weaviate_profiler_frwd_$i.log &
         fi
     done
 }
@@ -397,9 +414,6 @@ function generate_helm_values() {
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
                 helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
-            fi
-            if [[ $MODULE == "text2vec-ollama" ]]; then
-                startup_ollama
             fi
         done
     fi
