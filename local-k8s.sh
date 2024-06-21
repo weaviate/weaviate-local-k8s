@@ -23,6 +23,7 @@ REQUIREMENTS=(
 # client = weaviate.connect_to_local(host="host.docker.internal")
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
+EXPOSE_PODS=${EXPOSE_PODS:-"false"}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -37,6 +38,7 @@ TARGET=""
 WEAVIATE_IMAGES=(
     "semitechnologies/weaviate:${WEAVIATE_VERSION}"
     "semitechnologies/contextionary:en0.16.0-v1.2.1"
+    "semitechnologies/transformers-inference:mixedbread-ai-mxbai-embed-large-v1-onnx"
 )
 
 function get_timeout() {
@@ -102,6 +104,9 @@ function upgrade() {
     echo_green "upgrade # Waiting for rollout upgrade to be over"
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
 
     # Check if Weaviate is up
@@ -195,6 +200,9 @@ EOF
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
 
     # Check if Weaviate is up
@@ -217,7 +225,7 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP ]]; then
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
         shutdown_minio
     fi
 
