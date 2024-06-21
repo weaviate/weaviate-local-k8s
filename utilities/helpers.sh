@@ -204,6 +204,21 @@ function port_forward_to_weaviate() {
     fi
 }
 
+function port_forward_weaviate_pods() {
+
+    if ! command -v /tmp/kubectl-relay &> /dev/null; then
+        echo_red "kubectl-relay is not installed"
+        exit 1
+    fi
+    # Expose each pod on the ports coming after WEAVIATE_PORT
+    # if we have 4 replicase, weaviate-0 will be exposed on WEAVIATE_PORT+1, weaviate-1 on WEAVIATE_PORT+2, etc.
+    for i in $(seq 0 $((REPLICAS-1))); do
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
+            /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 -n weaviate &> /tmp/weaviate_frwd_weaviate_$i.log &
+        fi
+    done
+}
+
 function generate_helm_values() {
     local helm_values="--set image.tag=$WEAVIATE_VERSION \
                         --set replicas=$REPLICAS \
