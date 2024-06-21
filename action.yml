@@ -56,6 +56,8 @@ inputs:
     default: 'false'
   observability:
     description: 'Enable observability stack'
+  expose-pods:
+    description: 'Expose the weaviate-pods to be accessible in weaviate-port + i where i=1,2,3..replicas'
     required: false
     default: 'false'
 
@@ -85,6 +87,7 @@ runs:
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}
+        EXPOSE_PODS: ${{ inputs.expose-pods }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
