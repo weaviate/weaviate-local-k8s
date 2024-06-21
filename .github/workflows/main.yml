@@ -48,6 +48,7 @@ jobs:
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'master'
+        ENABLE_BACKUP: 'true'
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -68,6 +69,7 @@ jobs:
               weaviate-grpc-port: ${{ env.WEAVIATE_GRPC_PORT }}
               helm-branch: ${{ env.HELM_BRANCH }}
               values-override: ${{ env.VALUES_OVERRIDE }}
+              enable-backup: ${{ env.ENABLE_BACKUP }}
               values-inline: ${{ env.VALUES_INLINE }}
         - name: Check the configured values
           run: |
@@ -264,3 +266,59 @@ jobs:
                     exit 1
                 fi
             done
+    run-weaviate-local-k8s-backup:
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with support for backup
+      env:
+        WORKERS: '1'
+        REPLICAS: '5'
+        WEAVIATE_VERSION: '1.24.3'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            enable-backup: 'true'
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+        - name: Check the configured values
+          run: |
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            echo "Create a collection"
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{
+                  "class": "Article"
+                  }' \
+              http://localhost:8080/v1/schema
+            echo "Create a backup"
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{
+                  "id": "test-backup"
+                  }' \
+              http://localhost:8080/v1/backups/s3
+            response=$(curl -s http://localhost:8080/v1/backups/s3/test-backup)
+            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCEEDED"' > /dev/null 2>&1; then
+              echo "The backup has been started."
+            else
+              echo "The backup status is not STARTED/SUCCEEDED or the json output is not the expected."
+              exit 1
+            fi

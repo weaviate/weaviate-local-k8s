@@ -16,6 +16,29 @@ function echo_red() {
     echo -e "${red}${*}${nc}"
 }
 
+function startup_minio() {
+    echo_green "Starting up Minio"
+    kubectl apply -f manifests/minio-dev.yaml
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=10s
+    if [[ $ENABLE_BACKUP == "true" ]]; then
+        # Run minio/mc in a single shot to create the bucket
+        echo_green "Creating Minio bucket"
+        kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
+        /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
+        if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
+            /usr/bin/mc mb minio/weaviate-backups;
+            /usr/bin/mc policy set public minio/weaviate-backups;
+        else
+            echo 'Bucket minio/weaviate-backups already exists.';
+        fi;"
+    fi
+}
+
+function shutdown_minio() {
+    echo_green "Shutting down Minio"
+    kubectl delete -f manifests/minio-dev.yaml || true
+}
+
 function wait_weaviate() {
     echo_green "Wait for Weaviate to be ready"
     for _ in {1..120}; do
@@ -161,9 +184,17 @@ function generate_helm_values() {
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
-                helm_values="${helm_values} --set modules.${MODULE}.tag=snowflake-snowflake-arctic-embed-xs-onnx"
+                helm_values="${helm_values} --set modules.${MODULE}.tag=mixedbread-ai-mxbai-embed-large-v1-onnx"
             fi
         done
+    fi
+
+    if [[ $ENABLE_BACKUP == "true" ]]; then
+        helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+    fi
+
+    if [[ $S3_OFFLOAD == "true" ]]; then
+        helm_values="${helm_values} --set backups.filesystem.enabled=true --set env.OFFLOAD_S3_ENDPOINT=minio:9000 --set env.S3_ENDPOINT_URL=http://minio:9000 --set env.AWS_ACCESS_KEY_ID=aws_access_key --set env.AWS_SECRET_KEY=aws_secret_key"
     fi
 
     # Check if VALUES_INLINE variable is not empty

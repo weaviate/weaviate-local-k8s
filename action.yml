@@ -42,6 +42,14 @@ inputs:
     description: 'Override values for the Helm chart in inline form'
     required: false
     default: ''
+  enable-backup:
+    description: 'Configures S3 compatible backup for Weaviate'
+    required: false
+    default: 'false'
+  s3-offload:
+    description: 'Configures S3 tenant offloading'
+    required: false
+    default: 'false'
   delete-sts:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
@@ -68,6 +76,8 @@ runs:
         WEAVIATE_VERSION: ${{ inputs.weaviate-version }}
         MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
+        ENABLE_BACKUP: ${{ inputs.enable-backup }}
+        S3_OFFLOAD: ${{ inputs.s3-offload }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
