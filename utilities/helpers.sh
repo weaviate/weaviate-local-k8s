@@ -79,7 +79,7 @@ Examples:
     ./local-k8s.sh clean
 
 Notes:
-    - When using Mac with Docker, use 'host.docker.internal' instead of 'localhost' 
+    - When using Mac with Docker, use 'host.docker.internal' instead of 'localhost'
       for container connectivity
     - RBAC default configuration creates a single admin user with 'admin-key'
     - Monitoring (when enabled) provides Grafana (port 3000) and Prometheus (port 9091)
@@ -143,15 +143,15 @@ function wait_for_other_services() {
 function curl_with_auth() {
     local url=$1
     local extra_args=${2:-}  # Optional additional curl arguments
-    
+
     auth_enabled=$(is_auth_enabled)
     curl_cmd="curl -sf ${extra_args}"
-    
+
     if [[ "$auth_enabled" == "true" ]]; then
         bearer_token=$(get_bearer_token)
         curl_cmd="$curl_cmd -H 'Authorization: Bearer $bearer_token'"
     fi
-    
+
     curl_cmd="$curl_cmd $url"
     eval "$curl_cmd"
 }
@@ -207,7 +207,7 @@ function get_bearer_token() {
             return
         fi
     fi
- 
+
 }
 
 function wait_weaviate() {
@@ -346,6 +346,21 @@ function port_forward_to_weaviate() {
     fi
 }
 
+function port_forward_weaviate_pods() {
+
+    if ! command -v /tmp/kubectl-relay &> /dev/null; then
+        echo_red "kubectl-relay is not installed"
+        exit 1
+    fi
+    # Expose each pod on the ports coming after WEAVIATE_PORT
+    # if we have 4 replicase, weaviate-0 will be exposed on WEAVIATE_PORT+1, weaviate-1 on WEAVIATE_PORT+2, etc.
+    for i in $(seq 0 $((REPLICAS-1))); do
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
+            /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 -n weaviate &> /tmp/weaviate_frwd_weaviate_$i.log &
+        fi
+    done
+}
+
 function generate_helm_values() {
     local helm_values="--set image.tag=$WEAVIATE_VERSION \
                         --set replicas=$REPLICAS \
@@ -409,7 +424,7 @@ function generate_helm_values() {
     fi
 
     # Check if AUTH_CONFIG is provided
-    if [[ $AUTH_CONFIG != "" ]]; then 
+    if [[ $AUTH_CONFIG != "" ]]; then
         if [[ ! -f "$AUTH_CONFIG" ]]; then
             echo_red "Auth config file not found at $AUTH_CONFIG"
             exit 1

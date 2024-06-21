@@ -34,6 +34,7 @@ jobs:
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
         - name: Check the configured values
           run: |
+            set -ex
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
             if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                 echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -72,6 +73,7 @@ jobs:
         ENABLE_BACKUP: 'true'
         RBAC: 'true'
         AUTH_CONFIG: '/tmp/rbac-config.yaml' 
+        EXPOSE_PODS: 'true'
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -130,8 +132,10 @@ jobs:
             rbac: ${{ env.RBAC }}
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
+            expose-pods: ${{ env.EXPOSE_PODS }}
         - name: Check the configured values
           run: |
+              set -ex
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
               if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                   echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -179,6 +183,17 @@ jobs:
                   echo "Error: env.PERSISTENCE_LSM_ACCESS_STRATEGY is not equal to pread. Found $env_value"
                   exit 1
               fi
+              for ((i=0; i<${{ env.REPLICAS }}; i++)); do
+                PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
+                PROCESS=$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
+
+                if [ -z "$PROCESS" ]; then
+                  echo "FAIL: Pod $i (Port $PORT): NOT LISTENING"
+                  exit 1
+                else
+                  echo "Pod $i (Port $PORT): LISTENING"
+                fi
+              done
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
       name: Create a single-node Weaviate cluster with non existing image.
@@ -204,6 +219,7 @@ jobs:
             exit 1
         - name: Check that the deployment failed
           run: |
+              set -ex
               availableReplicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.status.availableReplicas}')
               if [[ "$replicas" -ne "0" ]]; then
                   echo "Error: Replicas count should be 0. Found $replicas"
@@ -231,6 +247,7 @@ jobs:
               modules: ${{ env.MODULES }}
         - name: Check the configured values
           run: |
+              set -ex
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.status.availableReplicas}")
               if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                   echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -287,6 +304,7 @@ jobs:
             weaviate-version: ${{ env.UPGRADE_VERSION }}
         - name: Check the configured values
           run: |
+            set -ex
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
             if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                 echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -431,6 +449,7 @@ jobs:
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
         - name: Check the configured values
           run: |
+            set -ex
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
             if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                 echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"

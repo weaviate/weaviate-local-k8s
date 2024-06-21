@@ -15,6 +15,7 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **delete-sts**: Allows deleting the Weaviate statefulset before perfoming an upgrade operation. Required for the upgrade from non-RAFT (pre-1.25) to RAFT (1.25)
 - **enable-backup**: When set to true it configures Weaviate to support S3 backups using MinIO. Refer to the [backup and restore](https://weaviate.io/developers/weaviate/configuration/backups#) documentation for more information.
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
+- **expose-pods**: Allows accessing each of the weaviate pods on a port number (default: false). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc...
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
 - **rbac-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
