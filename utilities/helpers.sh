@@ -19,7 +19,7 @@ function echo_red() {
 function startup_minio() {
     echo_green "Starting up Minio"
     kubectl apply -f manifests/minio-dev.yaml
-    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=10s
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=20s
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         echo_green "Creating Minio bucket"
@@ -162,6 +162,21 @@ function port_forward_to_weaviate() {
     /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
 
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+}
+
+function port_forward_weaviate_pods() {
+
+    if ! command -v /tmp/kubectl-relay &> /dev/null; then
+        echo_red "kubectl-relay is not installed"
+        exit 1
+    fi
+    # Expose each pod on the ports coming after WEAVIATE_PORT
+    # if we have 4 replicase, weaviate-0 will be exposed on WEAVIATE_PORT+1, weaviate-1 on WEAVIATE_PORT+2, etc.
+    for i in $(seq 0 $((REPLICAS-1))); do
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
+            /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 -n weaviate &> /tmp/weaviate_frwd_weaviate_$i.log &
+        fi
+    done
 }
 
 function generate_helm_values() {

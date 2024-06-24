@@ -54,6 +54,10 @@ inputs:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
     default: 'false'
+  expose-pods:
+    description: 'Expose the weaviate-pods to be accessible in weaviate-port + i where i=1,2,3..replicas'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -80,6 +84,7 @@ runs:
         S3_OFFLOAD: ${{ inputs.s3-offload }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
+        EXPOSE_PODS: ${{ inputs.expose-pods }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
