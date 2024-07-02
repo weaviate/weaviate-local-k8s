@@ -37,6 +37,7 @@ TARGET=""
 WEAVIATE_IMAGES=(
     "semitechnologies/weaviate:${WEAVIATE_VERSION}"
     "semitechnologies/contextionary:en0.16.0-v1.2.1"
+    "semitechnologies/text2vec-transformers:baai-bge-small-en-v1.5-onnx"
 )
 
 function get_timeout() {
@@ -166,30 +167,7 @@ EOF
     $VALUES_OVERRIDE
     #--set debug=true
 
-    if [[ $S3_OFFLOAD == "true" ]]; then
-        echo_green "setup # Enabling the offload-s3 module in ENABLE_MODULES variable"
-        # Fetch the current value of ENABLE_MODULES from the StatefulSet
-        CURRENT_VALUE=$(kubectl get sts/weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_MODULES")].value}')
 
-        # Define the new value to append
-        NEW_VALUE="offload-s3"
-
-        # Check if the NEW_VALUE is already in the CURRENT_VALUE
-        if [[ "${CURRENT_VALUE}" == *"${NEW_VALUE}"* ]]; then
-            echo "The value '${NEW_VALUE}' is already present in ENABLE_MODULES."
-        else
-            # Append the new value
-            UPDATED_VALUE="${CURRENT_VALUE},${NEW_VALUE}"
-
-            # Find the index of ENABLE_MODULES in the env array
-            INDEX=$(kubectl get sts/weaviate -n weaviate -o json | jq -r '.spec.template.spec.containers[0].env | to_entries | map(select(.value.name == "ENABLE_MODULES")) | .[0].key')
-
-            # Update the StatefulSet with the new value
-            kubectl patch sts/weaviate -n weaviate --type='json' -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/env/'"${INDEX}"'/value", "value": "'${UPDATED_VALUE}'"}]'
-
-            echo "Updated ENABLE_MODULES to: ${UPDATED_VALUE}"
-        fi
-    fi
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
@@ -217,7 +195,7 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP ]]; then
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
         shutdown_minio
     fi
 
