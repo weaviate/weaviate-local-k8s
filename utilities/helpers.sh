@@ -19,7 +19,7 @@ function echo_red() {
 function startup_minio() {
     echo_green "Starting up Minio"
     kubectl apply -f manifests/minio-dev.yaml
-    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=10s
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=30s
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         echo_green "Creating Minio bucket"
@@ -184,7 +184,7 @@ function generate_helm_values() {
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
-                helm_values="${helm_values} --set modules.${MODULE}.tag=mixedbread-ai-mxbai-embed-large-v1-onnx"
+                helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
             fi
         done
     fi
@@ -194,7 +194,7 @@ function generate_helm_values() {
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
-        helm_values="${helm_values} --set backups.filesystem.enabled=true --set env.OFFLOAD_S3_ENDPOINT=minio:9000 --set env.S3_ENDPOINT_URL=http://minio:9000 --set env.AWS_ACCESS_KEY_ID=aws_access_key --set env.AWS_SECRET_KEY=aws_secret_key"
+        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=minio:9000 --set offload.s3.envconfig.S3_ENDPOINT_URL=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
     # Check if VALUES_INLINE variable is not empty
