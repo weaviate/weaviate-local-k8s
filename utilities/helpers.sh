@@ -194,7 +194,7 @@ function generate_helm_values() {
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
-        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=minio:9000 --set offload.s3.envconfig.S3_ENDPOINT_URL=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
     # Check if VALUES_INLINE variable is not empty
