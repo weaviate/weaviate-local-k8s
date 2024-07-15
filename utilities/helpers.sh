@@ -194,7 +194,12 @@ function generate_helm_values() {
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
-        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+        secrets="--set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+        if [[ $ENABLE_BACKUP == "true" ]]; then
+            # if backup was already enabled we need to reference that S3 AWS secret.
+            secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
+        fi
+        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
     fi
 
     # Check if VALUES_INLINE variable is not empty
