@@ -189,12 +189,16 @@ function generate_helm_values() {
         done
     fi
 
-    if [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $ENABLE_BACKUP == "true" && $S3_OFFLOAD != "true" ]]; then
         helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]]; then
+    if [[ $ENABLE_BACKUP != "true" && $S3_OFFLOAD == "true" ]]; then
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+    fi
+
+    if [[ $ENABLE_BACKUP == "true" && $S3_OFFLOAD == "true" ]]; then
+        helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 --set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
     # Check if VALUES_INLINE variable is not empty
