@@ -19,7 +19,7 @@ function echo_red() {
 function startup_minio() {
     echo_green "Starting up Minio"
     kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml"
-    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=30s
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=60s
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         echo_green "Creating Minio bucket"
