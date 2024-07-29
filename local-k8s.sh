@@ -54,7 +54,7 @@ function upgrade() {
     echo_green "upgrade # Upgrading to Weaviate ${WEAVIATE_VERSION}"
 
     # Make sure to set the right context
-    kubectl config set-context kind-weaviate-k8s
+    kubectl config use-context kind-weaviate-k8s
 
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
@@ -187,7 +187,7 @@ function clean() {
     pkill -f "kubectl-relay" || true
 
     # Make sure to set the right context
-    kubectl config set-context kind-weaviate-k8s
+    kubectl config use-context kind-weaviate-k8s
 
     # Check if Weaviate release exists
     if helm status weaviate -n weaviate &> /dev/null; then
