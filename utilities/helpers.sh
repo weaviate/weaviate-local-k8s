@@ -162,6 +162,10 @@ function port_forward_to_weaviate() {
     /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
 
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+
+    /tmp/kubectl-relay svc/prometheus-grafana -n monitoring 3000:80 &> /tmp/grafana_frwd.log &
+
+    /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring 2112:9090 &> /tmp/prometheus_frwd.log &
 }
 
 function generate_helm_values() {
@@ -171,6 +175,8 @@ function generate_helm_values() {
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
                         --set env.LOG_LEVEL=info \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
+                        --set env.PROMETHEUS_MONITORING_ENABLED=true \
+                        --set serviceMonitor.enabled=true \
                         --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable
@@ -199,7 +205,7 @@ function generate_helm_values() {
             # if backup was already enabled we need to reference that S3 AWS secret.
             secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
         fi
-        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
+        helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
     fi
 
     # Check if VALUES_INLINE variable is not empty
@@ -217,6 +223,7 @@ function setup_helm () {
         HELM_BRANCH=$1
     fi
 
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
     if [ -n "${HELM_BRANCH:-}" ]; then
         WEAVIATE_HELM_DIR="/tmp/weaviate-helm"
         # Delete $WEAVIATE_HELM_DIR if it already exists
@@ -233,4 +240,37 @@ function setup_helm () {
         helm repo update
         TARGET="weaviate/weaviate"
     fi
+    
+}
+
+function setup_monitoring () {
+
+    echo_green "Setting up monitoring"
+
+    echo_green "*** Metrics API ***"
+    # Start up metrics api
+    kubectl apply -f "$(dirname "$0")/manifests/metrics-server.yaml"
+
+    # Create monitoring namespace
+    kubectl create namespace monitoring
+
+    echo_green "*** Prometheus Stack ***"
+    # Install kube-prometheus-stack
+    helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring \
+      -f "$(dirname "$0")/helm/kube-prometheus-stack.yaml"
+    
+    # Wait for prometheus-grafana deploymnet to be ready
+    kubectl wait --for=condition=available deployment/prometheus-grafana -n monitoring --timeout=120s
+
+    echo_green "*** Grafana Renderer ***"
+    # Deploy grafana-renderer
+    #https://grafana.com/grafana/plugins/grafana-image-renderer/
+    kubectl apply -f "$(dirname "$0")/manifests/grafana-renderer.yaml"
+    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=120s
+
+    echo_green "*** Load Grafana Dashboards ***"
+    for file in $(dirname "$0")/manifests/grafana-dashboards/*.yaml
+    do
+        kubectl apply -f $file
+    done
 }

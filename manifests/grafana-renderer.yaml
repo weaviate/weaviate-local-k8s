@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-renderer
+  namespace: monitoring
+  labels:
+    app: grafana-renderer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-renderer
+  template:
+    metadata:
+      labels:
+        app: grafana-renderer
+    spec:
+      containers:
+        - name: grafana-renderer
+          image: grafana/grafana-image-renderer:latest
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-renderer
+  namespace: monitoring
+  labels:
+    app: grafana-renderer
+spec:
+  selector:
+    app: grafana-renderer
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+  type: ClusterIP

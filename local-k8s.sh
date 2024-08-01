@@ -147,6 +147,8 @@ EOF
 
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
+    # Setup monitoring in the weaviate cluster
+    setup_monitoring
 
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
@@ -178,6 +180,9 @@ EOF
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
     echo_green "setup # Success"
+    echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
+    echo_green "setup # Grafana is accessible on http://localhost:3000 (admin/admin)"
+    echo_green "setup # Prometheus is accessible on http://localhost:2112"
 }
 
 function clean() {
