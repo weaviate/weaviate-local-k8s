@@ -121,7 +121,8 @@ data:
                 "uid": "Prometheus"
               },
               "editorMode": "code",
-              "expr": "rate(objects_durations_ms_sum{operation=\"put\"}[$__interval])/rate(objects_durations_ms_count{operation=\"put\"}[$__interval])",
+              "expr": "rate(objects_durations_ms_sum{operation=\"put\"}[5m])/rate(objects_durations_ms_count{operation=\"put\"}[5m])",
+              "interval": "",
               "legendFormat": "{{step}} ({{class_name}}/{{shard_name}})",
               "range": true,
               "refId": "A"
@@ -218,7 +219,7 @@ data:
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(objects_durations_ms_sum{step=\"total\"}[$__interval]) / rate(objects_durations_ms_count{step=\"total\"}[$__interval])",
+              "expr": "rate(objects_durations_ms_sum{step=\"total\"}[5m]) / rate(objects_durations_ms_count{step=\"total\"}[5m])",
               "format": "time_series",
               "interval": "",
               "legendFormat": "{{step}} ({{class_name}}/{{shard_name}})",
@@ -317,7 +318,7 @@ data:
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(objects_durations_ms_sum{step=\"upsert_object_store\"}[$__interval]) / rate(objects_durations_ms_count{step=\"upsert_object_store\"}[$__interval])",
+              "expr": "rate(objects_durations_ms_sum{step=\"upsert_object_store\"}[5m]) / rate(objects_durations_ms_count{step=\"upsert_object_store\"}[5m])",
               "format": "time_series",
               "interval": "",
               "legendFormat": "{{step}} ({{class_name}}/{{shard_name}})",
@@ -412,7 +413,7 @@ data:
                 "uid": "Prometheus"
               },
               "exemplar": true,
-              "expr": "rate(batch_delete_durations_ms_sum{}[$__interval])/rate(batch_delete_durations_ms_count{}[$__interval])",
+              "expr": "rate(batch_delete_durations_ms_sum{}[5m])/rate(batch_delete_durations_ms_count{}[5m])",
               "interval": "",
               "legendFormat": "{{ operation }} ({{class_name}}/{{shard_name}})",
               "refId": "A"
@@ -509,7 +510,7 @@ data:
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "rate(objects_durations_ms_sum{step=\"inverted_total\"}[$__interval]) / rate(objects_durations_ms_count{step=\"inverted_total\"}[$__interval])",
+              "expr": "rate(objects_durations_ms_sum{step=\"inverted_total\"}[5m]) / rate(objects_durations_ms_count{step=\"inverted_total\"}[5m])",
               "format": "time_series",
               "interval": "",
               "legendFormat": "{{step}} ({{class_name}}/{{shard_name}})",

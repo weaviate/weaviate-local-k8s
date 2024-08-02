@@ -114,7 +114,7 @@ data:
                 "uid": "Prometheus"
               },
               "exemplar": true,
-              "expr": "rate(batch_durations_ms_sum{class_name=\"n/a\"}[$__interval])/rate(batch_durations_ms_count{class_name=\"n/a\"}[$__interval])",
+              "expr": "rate(batch_durations_ms_sum{class_name=\"n/a\"}[5m])/rate(batch_durations_ms_count{class_name=\"n/a\"}[5m])",
               "interval": "",
               "legendFormat": "{{operation}}",
               "refId": "A"
@@ -359,7 +359,7 @@ data:
                 "uid": "Prometheus"
               },
               "exemplar": true,
-              "expr": "rate(batch_durations_ms_sum{operation=\"object_storage\"}[$__interval])/rate(batch_durations_ms_count{operation=\"object_storage\"}[$__interval])",
+              "expr": "rate(batch_durations_ms_sum{operation=\"object_storage\"}[5m])/rate(batch_durations_ms_count{operation=\"object_storage\"}[5m])",
               "interval": "",
               "legendFormat": "Object Storage ({{class_name}} - {{shard_name}})",
               "refId": "A"
@@ -370,7 +370,7 @@ data:
                 "uid": "Prometheus"
               },
               "exemplar": true,
-              "expr": "rate(batch_durations_ms_sum{operation=\"vector_storage\"}[$__interval])/rate(batch_durations_ms_count{operation=\"vector_storage\"}[$__interval])",
+              "expr": "rate(batch_durations_ms_sum{operation=\"vector_storage\"}[5m])/rate(batch_durations_ms_count{operation=\"vector_storage\"}[5m])",
               "hide": false,
               "interval": "",
               "legendFormat": "Vector Storage ({{class_name}} - {{shard_name}})",
