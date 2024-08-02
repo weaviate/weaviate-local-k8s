@@ -1,0 +1,19 @@
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: admin
+  grafana.ini:
+    auth.anonymous:
+      enabled: true
+    rendering:
+      server_url: http://grafana-renderer.monitoring.svc.cluster.local:8081/render
+      callback_url: http://prometheus-grafana.monitoring.svc.cluster.local/
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+alertmanager:
+  enabled: false
