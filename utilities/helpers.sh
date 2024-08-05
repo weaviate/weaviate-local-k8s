@@ -297,7 +297,7 @@ function use_local_images() {
         case "$MODULES" in
             "text2vec-transformers")
                 WEAVIATE_IMAGES+=(
-                    "semitechnologies/text2vec-transformers:baai-bge-small-en-v1.5-onnx"
+                    "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
                 )
                 ;;
             "text2vec-contextionary")
