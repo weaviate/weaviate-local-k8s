@@ -58,10 +58,7 @@ function upgrade() {
 
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
-        echo_green "Uploading local images to the cluster"
-        for image in "${WEAVIATE_IMAGES[@]}"; do
-            kind load docker-image $image --name weaviate-k8s
-        done
+        use_local_images
     fi
 
     if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
@@ -132,10 +129,7 @@ EOF
 
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
-        echo_green "Uploading local images to the cluster"
-        for image in "${WEAVIATE_IMAGES[@]}"; do
-            kind load docker-image $image --name weaviate-k8s
-        done
+        use_local_images
     fi
 
     # Create namespace

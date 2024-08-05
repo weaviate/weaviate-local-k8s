@@ -274,3 +274,47 @@ function setup_monitoring () {
         kubectl apply -f $file
     done
 }
+
+# Function to check if an image exists locally, and if not, pull it
+function check_and_pull_image() {
+    local image=$1
+    if ! docker image inspect "$image" > /dev/null 2>&1; then
+        echo "Image $image not found locally. Pulling..."
+        docker pull "$image"
+    else
+        echo "Image $image is already present locally."
+    fi
+}
+
+# Function to upload local images to the local k8s cluster
+function use_local_images() {
+
+    WEAVIATE_IMAGES=(
+            "semitechnologies/weaviate:${WEAVIATE_VERSION}"
+    )
+    if [[ $MODULES != "" ]]; then
+        # Determine the images to be used in the local k8s cluster based on the MODULES variable
+        case "$MODULES" in
+            "text2vec-transformers")
+                WEAVIATE_IMAGES+=(
+                    "semitechnologies/text2vec-transformers:baai-bge-small-en-v1.5-onnx"
+                )
+                ;;
+            "text2vec-contextionary")
+                WEAVIATE_IMAGES+=(
+                    "semitechnologies/contextionary:en0.16.0-v1.2.1"
+                )
+                ;;
+            # Add more cases as needed for other modules
+            *)
+                echo "Unknown module: $MODULES"
+                exit 1
+                ;;
+        esac
+    fi
+    echo_green "Uploading local images to the cluster"
+    for image in "${WEAVIATE_IMAGES[@]}"; do
+        check_and_pull_image $image
+        kind load docker-image $image --name weaviate-k8s
+    done
+}
