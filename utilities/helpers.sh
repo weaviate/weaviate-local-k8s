@@ -163,9 +163,11 @@ function port_forward_to_weaviate() {
 
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
 
-    /tmp/kubectl-relay svc/prometheus-grafana -n monitoring 3000:80 &> /tmp/grafana_frwd.log &
+    if [[ $OBSERVABILITY == "true" ]]; then
+        /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
 
-    /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring 2112:9090 &> /tmp/prometheus_frwd.log &
+        /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
+    fi
 }
 
 function generate_helm_values() {
@@ -175,8 +177,6 @@ function generate_helm_values() {
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
                         --set env.LOG_LEVEL=info \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
-                        --set env.PROMETHEUS_MONITORING_ENABLED=true \
-                        --set serviceMonitor.enabled=true \
                         --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable
@@ -206,6 +206,10 @@ function generate_helm_values() {
             secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
+    fi
+
+    if [[ $OBSERVABILITY == "true" ]]; then
+        helm_values="${helm_values}  --set env.PROMETHEUS_MONITORING_ENABLED=true --set serviceMonitor.enabled=true"
     fi
 
     # Check if VALUES_INLINE variable is not empty

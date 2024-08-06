@@ -54,6 +54,10 @@ inputs:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
     default: 'false'
+  observability:
+    description: 'Enable observability stack'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -80,6 +84,7 @@ runs:
         S3_OFFLOAD: ${{ inputs.s3-offload }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
+        OBSERVABILITY: ${{ inputs.observability }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
