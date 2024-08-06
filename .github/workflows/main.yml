@@ -1,5 +1,8 @@
 on:
   push:
+    tags-ignore:
+      - v1
+      - v2
 
 jobs:
     run-weaviate-local-k8s-basic:
@@ -71,6 +74,7 @@ jobs:
               values-override: ${{ env.VALUES_OVERRIDE }}
               enable-backup: ${{ env.ENABLE_BACKUP }}
               values-inline: ${{ env.VALUES_INLINE }}
+              observability: 'true'
         - name: Check the configured values
           run: |
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -90,6 +94,16 @@ jobs:
                       exit 1
                   fi
               done
+              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9091/metrics)
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: Prometheus is not listening, returned $error"
+                exit 1
+              fi
+              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/)
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: Grafana is not listening, returned $error"
+                exit 1
+              fi
               env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ASYNC_INDEXING")].value}')
               if [[ "$env_value" != "true" ]]; then
                   echo "Error: env.ASYNC_INDEXING is not equal to true. Found $env_value"

@@ -30,15 +30,11 @@ HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
 REPLICAS=${REPLICAS:-1}
+OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
-# Array with the images to be used in the local k8s cluster
-WEAVIATE_IMAGES=(
-    "semitechnologies/weaviate:${WEAVIATE_VERSION}"
-    "semitechnologies/contextionary:en0.16.0-v1.2.1"
-    "semitechnologies/text2vec-transformers:baai-bge-small-en-v1.5-onnx"
-)
+
 
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
@@ -141,8 +137,11 @@ EOF
 
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
+
     # Setup monitoring in the weaviate cluster
-    setup_monitoring
+    if [[ $OBSERVABILITY == "true" ]]; then
+        setup_monitoring
+    fi
 
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
@@ -175,8 +174,10 @@ EOF
     wait_for_all_healthy_nodes $REPLICAS
     echo_green "setup # Success"
     echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
-    echo_green "setup # Grafana is accessible on http://localhost:3000 (admin/admin)"
-    echo_green "setup # Prometheus is accessible on http://localhost:2112"
+    if [[ $OBSERVABILITY == "true" ]]; then
+        echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
+        echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
+    fi
 }
 
 function clean() {
