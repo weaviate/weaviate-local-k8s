@@ -270,7 +270,7 @@ function setup_monitoring () {
     # Deploy grafana-renderer
     #https://grafana.com/grafana/plugins/grafana-image-renderer/
     kubectl apply -f "$(dirname "$0")/manifests/grafana-renderer.yaml"
-    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=120s
+    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
 
     echo_green "*** Load Grafana Dashboards ***"
     for file in $(dirname "$0")/manifests/grafana-dashboards/*.yaml
