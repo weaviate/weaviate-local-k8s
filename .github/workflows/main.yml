@@ -1,5 +1,8 @@
 on:
   push:
+    tags-ignore:
+      - v1
+      - v2
 
 jobs:
     run-weaviate-local-k8s-basic:
