@@ -23,6 +23,7 @@ REQUIREMENTS=(
 # client = weaviate.connect_to_local(host="host.docker.internal")
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
+EXPOSE_PODS=${EXPOSE_PODS:-"false"}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -34,7 +35,6 @@ OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
-
 
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
@@ -96,6 +96,9 @@ function upgrade() {
     echo_green "upgrade # Waiting for rollout upgrade to be over"
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
 
     # Check if Weaviate is up
@@ -168,6 +171,9 @@ EOF
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
 
     # Check if Weaviate is up
