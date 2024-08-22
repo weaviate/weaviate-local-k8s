@@ -122,6 +122,14 @@ function wait_for_minio() {
     fi
 }
 
+function startup_ollama() {
+    echo_green "Starting up Ollama"
+    kubectl apply -f "$(dirname "$0")/manifests/ollama.yaml"
+    kubectl wait deployment/ollama -n weaviate --for=condition=Ready --timeout=60s
+    kubectl exec deployment/ollama -n weaviate -- /bin/bash -c "
+    ollama pull snowflake-arctic-embed:33m"
+}
+
 function shutdown_minio() {
     echo_green "Shutting down Minio"
     kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
@@ -327,9 +335,9 @@ function port_forward_to_weaviate() {
         tar -xzf "/tmp/${KUBE_RELAY_FILENAME}" -C /tmp
     fi
 
-    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
+    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80  &> /tmp/weaviate_frwd.log &
 
-    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051  &> /tmp/weaviate_grpc_frwd.log &
 
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
 
@@ -344,6 +352,13 @@ function port_forward_to_weaviate() {
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
+
+    for MODULE in "${MODULES_ARRAY[@]}"; do
+        # If the module is text2vec-ollama, export the service in port 11434
+        if [[ $MODULE == "text2vec-ollama" ]]; then
+            /tmp/kubectl-relay svc/ollama -n weaviate 11434:11434 &> /tmp/ollama_frwd.log &
+        fi
+    done
 }
 
 function port_forward_weaviate_pods() {
@@ -382,6 +397,9 @@ function generate_helm_values() {
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
                 helm_values="${helm_values} --set modules.${MODULE}.tag=baai-bge-small-en-v1.5-onnx"
+            fi
+            if [[ $MODULE == "text2vec-ollama" ]]; then
+                startup_ollama
             fi
         done
     fi
