@@ -19,7 +19,11 @@ function echo_red() {
 function startup_minio() {
     echo_green "Starting up Minio"
     kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml"
-    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=60s
+}
+
+function wait_for_minio() {
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
+    echo_green "Minio is ready"
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         echo_green "Creating Minio bucket"
@@ -39,6 +43,25 @@ function shutdown_minio() {
     kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
 }
 
+function startup_ollama() {
+    echo_green "Starting up Ollama"
+    kubectl apply -f "$(dirname "$0")/manifests/ollama.yaml"
+}
+
+function wait_for_ollama() {
+    kubectl wait deployment/ollama -n weaviate --for=condition=Available --timeout=300s
+    echo_green "Ollama is ready"
+    echo_green "Pulling snowflake-arctic-embed model"
+    kubectl exec deployment/ollama -n weaviate -- /bin/bash -c "
+    ollama pull snowflake-arctic-embed:33m"
+}
+
+function shutdown_ollama() {
+    echo_green "Shutting down Ollama"
+    kubectl delete -f "$(dirname "$0")/manifests/ollama.yaml" || true
+}
+
+
 function wait_weaviate() {
     echo_green "Wait for Weaviate to be ready"
     for _ in {1..120}; do
@@ -50,6 +73,25 @@ function wait_weaviate() {
         echo_yellow "Weaviate is not ready, trying again in 1s"
         sleep 1
     done
+
+}
+
+function wait_for_other_services() {
+
+    # Wait for minio service to be ready if S3 offload or backup is enabled
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+        wait_for_minio
+    fi
+
+    # Wait for Ollama service to be ready if text2vec-ollama is enabled
+    if [[ "$MODULES" == *text2vec-ollama* ]]; then
+        wait_for_ollama
+    fi
+
+    # Wait for monitoring to be ready if observability is enabled
+    if [[ $OBSERVABILITY == "true" ]]; then
+        wait_for_monitoring
+    fi
 }
 
 function wait_cluster_join() {
@@ -122,6 +164,7 @@ function wait_for_raft_sync() {
 }
 
 function port_forward_to_weaviate() {
+    echo_green "Port-forwarding to Weaviate cluster"
     # Install kube-relay tool to perform port-forwarding
     # Check if kubectl-relay binary is available
     if ! command -v kubectl-relay &> /dev/null; then
@@ -159,15 +202,21 @@ function port_forward_to_weaviate() {
         tar -xzf "/tmp/${KUBE_RELAY_FILENAME}" -C /tmp
     fi
 
-    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
+    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80  &> /tmp/weaviate_frwd.log &
 
-    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051  &> /tmp/weaviate_grpc_frwd.log &
 
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
+
+    # If the module is text2vec-ollama, export the service in port 11434
+    if [[ "$MODULES" == *text2vec-ollama* ]]; then
+        /tmp/kubectl-relay svc/ollama -n weaviate 11434:11434 &> /tmp/ollama_frwd.log &
+    fi
+    
 }
 
 function generate_helm_values() {
@@ -262,21 +311,27 @@ function setup_monitoring () {
     # Install kube-prometheus-stack
     helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring \
       -f "$(dirname "$0")/helm/kube-prometheus-stack.yaml"
-    
-    # Wait for prometheus-grafana deploymnet to be ready
-    kubectl wait --for=condition=available deployment/prometheus-grafana -n monitoring --timeout=120s
 
     echo_green "*** Grafana Renderer ***"
     # Deploy grafana-renderer
     #https://grafana.com/grafana/plugins/grafana-image-renderer/
     kubectl apply -f "$(dirname "$0")/manifests/grafana-renderer.yaml"
-    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
 
     echo_green "*** Load Grafana Dashboards ***"
     for file in $(dirname "$0")/manifests/grafana-dashboards/*.yaml
     do
         kubectl apply -f $file
     done
+}
+
+function wait_for_monitoring () {
+
+    # Wait for prometheus-grafana deploymnet to be ready
+    kubectl wait --for=condition=available deployment/prometheus-grafana -n monitoring --timeout=120s
+    echo_green "Prometheus Grafana is ready"
+
+    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
+    echo_green "Grafana Renderer is ready"
 }
 
 # Function to check if an image exists locally, and if not, pull it
@@ -298,23 +353,31 @@ function use_local_images() {
     )
     if [[ $MODULES != "" ]]; then
         # Determine the images to be used in the local k8s cluster based on the MODULES variable
-        case "$MODULES" in
-            "text2vec-transformers")
-                WEAVIATE_IMAGES+=(
-                    "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
-                )
-                ;;
-            "text2vec-contextionary")
-                WEAVIATE_IMAGES+=(
-                    "semitechnologies/contextionary:en0.16.0-v1.2.1"
-                )
-                ;;
-            # Add more cases as needed for other modules
-            *)
-                echo "Unknown module: $MODULES"
-                exit 1
-                ;;
-        esac
+        IFS=',' read -ra MODULES_ARRAY <<< "$MODULES"
+        for MODULE in "${MODULES_ARRAY[@]}"; do
+            case "$MODULE" in
+                "text2vec-transformers")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
+                    )
+                    ;;
+                "text2vec-contextionary")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/contextionary:en0.16.0-v1.2.1"
+                    )
+                    ;;
+                "text2vec-ollama")
+                    WEAVIATE_IMAGES+=(
+                        "ollama/ollama:latest"
+                    )
+                    ;;
+                # Add more cases as needed for other modules
+                *)
+                    echo "Unknown module: $MODULE"
+                    exit 1
+                    ;;
+            esac
+        done
     fi
     echo_green "Uploading local images to the cluster"
     for image in "${WEAVIATE_IMAGES[@]}"; do

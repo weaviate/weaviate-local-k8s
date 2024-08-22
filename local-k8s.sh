@@ -62,6 +62,11 @@ function upgrade() {
         kubectl get pod -n weaviate minio &> /dev/null || startup_minio
     fi
 
+    if [[ $MODULES == *text2vec-ollama* ]]; then
+        # if the ollama deployment is not running, start it
+        kubectl get deployment -n weaviate ollama &> /dev/null || startup_ollama
+    fi
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -135,6 +140,11 @@ EOF
         startup_minio
     fi
 
+    # Start Ollama if text2vec-ollama is enabled
+    if [[ "$MODULES" == *text2vec-ollama* ]]; then
+        startup_ollama
+    fi
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -169,6 +179,7 @@ EOF
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate
     wait_weaviate
+    wait_for_other_services
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
@@ -195,6 +206,12 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
+    # Shutdown ollama
+    if [[ "$MODULES" == *text2vec-ollama* ]]; then
+        shutdown_ollama
+    fi
+
+    # Shutdown Minio
     if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
         shutdown_minio
     fi
