@@ -97,6 +97,7 @@ function upgrade() {
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate
     wait_weaviate
+    wait_for_other_services
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
