@@ -19,7 +19,11 @@ function echo_red() {
 function startup_minio() {
     echo_green "Starting up Minio"
     kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml"
-    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=60s
+}
+
+function wait_for_minio() {
+    kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
+    echo_green "Minio is ready"
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         echo_green "Creating Minio bucket"
@@ -50,6 +54,19 @@ function wait_weaviate() {
         echo_yellow "Weaviate is not ready, trying again in 1s"
         sleep 1
     done
+}
+
+function wait_for_other_services() {
+
+    # Wait for minio service to be ready if S3 offload or backup is enabled
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+        wait_for_minio
+    fi
+
+    # Wait for monitoring to be ready if observability is enabled
+    if [[ $OBSERVABILITY == "true" ]]; then
+        wait_for_monitoring
+    fi
 }
 
 function wait_cluster_join() {
@@ -122,6 +139,7 @@ function wait_for_raft_sync() {
 }
 
 function port_forward_to_weaviate() {
+    echo_green "Port-forwarding to Weaviate cluster"
     # Install kube-relay tool to perform port-forwarding
     # Check if kubectl-relay binary is available
     if ! command -v kubectl-relay &> /dev/null; then
@@ -262,21 +280,27 @@ function setup_monitoring () {
     # Install kube-prometheus-stack
     helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring \
       -f "$(dirname "$0")/helm/kube-prometheus-stack.yaml"
-    
-    # Wait for prometheus-grafana deploymnet to be ready
-    kubectl wait --for=condition=available deployment/prometheus-grafana -n monitoring --timeout=120s
 
     echo_green "*** Grafana Renderer ***"
     # Deploy grafana-renderer
     #https://grafana.com/grafana/plugins/grafana-image-renderer/
     kubectl apply -f "$(dirname "$0")/manifests/grafana-renderer.yaml"
-    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
 
     echo_green "*** Load Grafana Dashboards ***"
     for file in $(dirname "$0")/manifests/grafana-dashboards/*.yaml
     do
         kubectl apply -f $file
     done
+}
+
+function wait_for_monitoring () {
+
+    # Wait for prometheus-grafana deploymnet to be ready
+    kubectl wait --for=condition=available deployment/prometheus-grafana -n monitoring --timeout=120s
+    echo_green "Prometheus Grafana is ready"
+
+    kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
+    echo_green "Grafana Renderer is ready"
 }
 
 # Function to check if an image exists locally, and if not, pull it
