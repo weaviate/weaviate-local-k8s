@@ -17,8 +17,9 @@ function echo_red() {
 }
 
 function startup_minio() {
+    id=$1
     echo_green "Starting up Minio"
-    kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml"
+    kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml" -n weaviate-$id
 }
 
 function wait_for_minio() {
@@ -39,19 +40,21 @@ function wait_for_minio() {
 }
 
 function shutdown_minio() {
+    id=$1
     echo_green "Shutting down Minio"
-    kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
+    kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" -n weaviate-$id || true
 }
 
 function wait_weaviate() {
+    id=$1
     echo_green "Wait for Weaviate to be ready"
     for _ in {1..120}; do
-        if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
-            echo_green "Weaviate is ready"
+        if curl -sf -o /dev/null localhost:$((${WEAVIATE_PORT} + id)); then
+            echo_green "Weaviate ${id} is ready"
             break
         fi
 
-        echo_yellow "Weaviate is not ready, trying again in 1s"
+        echo_yellow "Weaviate ${id} is not ready, trying again in 1s"
         sleep 1
     done
 }
@@ -86,7 +89,8 @@ function wait_cluster_join() {
 
 function is_node_healthy() {
     node=$1
-    if curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+    id=$2
+    if curl -sf localhost:$((${WEAVIATE_PORT} + id ))/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
         echo "true"
     else
         echo "false"
@@ -95,12 +99,13 @@ function is_node_healthy() {
 
 function wait_for_all_healthy_nodes() {
     replicas=$1
+    id=$2
     echo_green "Wait for all Weaviate $replicas nodes in cluster"
     for _ in {1..120}; do
         healty_nodes=0
         for i in $(seq 0 $((replicas-1))); do
             node="weaviate-$i"
-            is_healthy=$(is_node_healthy $node)
+            is_healthy=$(is_node_healthy $node $id)
             if [ "$is_healthy" == "true" ]; then
                 healty_nodes=$((healty_nodes+1))
             else
@@ -139,6 +144,7 @@ function wait_for_raft_sync() {
 }
 
 function port_forward_to_weaviate() {
+    id=$1
     echo_green "Port-forwarding to Weaviate cluster"
     # Install kube-relay tool to perform port-forwarding
     # Check if kubectl-relay binary is available
@@ -177,9 +183,9 @@ function port_forward_to_weaviate() {
         tar -xzf "/tmp/${KUBE_RELAY_FILENAME}" -C /tmp
     fi
 
-    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
+    /tmp/kubectl-relay svc/weaviate -n weaviate-$id $((${WEAVIATE_PORT} + id)):80 &> /tmp/weaviate_frwd.log &
 
-    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate-$id $((${WEAVIATE_GRPC_PORT} + id)):50051 &> /tmp/weaviate_grpc_frwd.log &
 
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &

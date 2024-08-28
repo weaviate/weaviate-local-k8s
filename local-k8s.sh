@@ -34,6 +34,7 @@ OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
+CLUSTERS=${CLUSTERS:-1}
 
 
 function get_timeout() {
@@ -115,8 +116,16 @@ function setup() {
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: weaviate-k8s
+networking:
+  podSubnet: "10.244.0.0/24"
 nodes:
 - role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        node-cidr-mask-size-ipv4: "28" # Allows only having 16 IPs per node (9 IPs for Weaviate pods)
 $([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
 EOF
 
@@ -129,56 +138,63 @@ EOF
         use_local_images
     fi
 
-    # Create namespace
-    kubectl create namespace weaviate
-
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
-        startup_minio
-    fi
-
-    # This function sets up weaviate-helm and sets the global env var $TARGET
-    setup_helm $HELM_BRANCH
-
     # Setup monitoring in the weaviate cluster
     if [[ $OBSERVABILITY == "true" ]]; then
         setup_monitoring
     fi
 
-    VALUES_OVERRIDE=""
-    # Check if values-override.yaml file exists
-    if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
-        VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
-    fi
+    # Create multiple clusters
+    CLUSTERS=$(echo "$CLUSTERS" | tr -cd '[:digit:]')
+    echo_green "Creating ${CLUSTERS} Weaviate clusters"
+    for ((cluster=1; cluster<=$CLUSTERS; cluster++)); do
+        echo_green "Setting up Weaviate-${cluster} cluster"
+        # Create namespace
+        kubectl create namespace weaviate-$cluster
 
-    HELM_VALUES=$(generate_helm_values)
+        if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+            startup_minio $cluster
+        fi
 
-    echo_green "setup # Deploying weaviate-helm with values: \n\
-        TARGET: $TARGET \n\
-        HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
-        VALUES_OVERRIDE: $VALUES_OVERRIDE"
-    # Install Weaviate using Helm
-    helm upgrade --install weaviate $TARGET \
-    --namespace weaviate \
-    $HELM_VALUES \
-    $VALUES_OVERRIDE
-    #--set debug=true
+        # This function sets up weaviate-helm and sets the global env var $TARGET
+        setup_helm $HELM_BRANCH
+
+        VALUES_OVERRIDE=""
+        # Check if values-override.yaml file exists
+        if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
+            VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
+        fi
+
+        HELM_VALUES=$(generate_helm_values)
+
+        echo_green "setup # Deploying weaviate-helm with values: \n\
+            TARGET: $TARGET \n\
+            HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
+            VALUES_OVERRIDE: $VALUES_OVERRIDE"
+        # Install Weaviate using Helm
+        helm upgrade --install weaviate $TARGET \
+        --namespace weaviate-$cluster \
+        $HELM_VALUES \
+        $VALUES_OVERRIDE
+        #--set debug=true
 
 
-    # Wait for Weaviate to be up
-    TIMEOUT=$(get_timeout)
-    echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
-    kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
-    port_forward_to_weaviate
-    wait_weaviate
+        # Wait for Weaviate to be up
+        TIMEOUT=$(get_timeout)
+        echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
+        kubectl wait sts/weaviate -n weaviate-$cluster --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
+        port_forward_to_weaviate $cluster
+        wait_weaviate $cluster
 
-    # Check if Weaviate is up
-    wait_for_all_healthy_nodes $REPLICAS
-    echo_green "setup # Success"
-    echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
+        # Check if Weaviate is up
+        wait_for_all_healthy_nodes $REPLICAS $cluster
+        echo_green "setup # Success"
+        echo_green "setup # Weaviate ${cluster} is up and running on http://localhost:$((${WEAVIATE_PORT} + $cluster))"
+    done
     if [[ $OBSERVABILITY == "true" ]]; then
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
         echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
     fi
+    
 }
 
 function clean() {
@@ -190,21 +206,24 @@ function clean() {
     # Make sure to set the right context
     kubectl config use-context kind-weaviate-k8s
 
-    # Check if Weaviate release exists
-    if helm status weaviate -n weaviate &> /dev/null; then
-        # Uninstall Weaviate using Helm
-        helm uninstall weaviate -n weaviate
-    fi
+    # Clean up additional clusters
+    for ((cluster=1; cluster<=$CLUSTERS; cluster++)); do
+        # Check if Weaviate release exists in the cluster
+        if helm status weaviate -n weaviate-$cluster &> /dev/null; then
+            # Uninstall Weaviate using Helm in the cluster
+            helm uninstall weaviate -n weaviate-$cluster
+        fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
-        shutdown_minio
-    fi
+        if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+            shutdown_minio $cluster
+        fi
 
-    # Check if Weaviate namespace exists
-    if kubectl get namespace weaviate &> /dev/null; then
-        # Delete Weaviate namespace
-        kubectl delete namespace weaviate
-    fi
+        # Check if Weaviate namespace exists in the cluster
+        if kubectl get namespace weaviate-$cluster &> /dev/null; then
+            # Delete Weaviate namespace in the cluster
+            kubectl delete namespace weaviate-$cluster
+        fi
+    done
 
     # Check if Kind cluster exists
     if kind get clusters | grep -q "weaviate-k8s"; then

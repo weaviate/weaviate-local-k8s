@@ -10,7 +10,6 @@ metadata:
   labels:
     app: minio
   name: minio
-  namespace: weaviate # Change this value to match the namespace metadata.name
 spec:
   containers:
   - name: minio
