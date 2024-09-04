@@ -1,8 +1,8 @@
+name: Weaviate Local Kubernetes Action
+
 on:
-  push:
-    tags-ignore:
-      - v1
-      - v2
+  pull_request:
+    types: [opened, synchronize]
 
 jobs:
     run-weaviate-local-k8s-basic:
@@ -11,7 +11,7 @@ jobs:
       env:
         WORKERS: '3'
         REPLICAS: '5'
-        WEAVIATE_VERSION: '1.24.3'
+        WEAVIATE_VERSION: '1.26.3'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -41,6 +41,11 @@ jobs:
                     exit 1
                 fi
             done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
     run-weaviate-local-k8s-all-params:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action passing all parameters
@@ -104,6 +109,11 @@ jobs:
                 echo "Error: Grafana is not listening, returned $error"
                 exit 1
               fi
+              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: Weaviate metrics is not listening, returned $error"
+                exit 1
+              fi
               env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ASYNC_INDEXING")].value}')
               if [[ "$env_value" != "true" ]]; then
                   echo "Error: env.ASYNC_INDEXING is not equal to true. Found $env_value"
@@ -150,7 +160,7 @@ jobs:
       env:
         WORKERS: '2'
         REPLICAS: '3'
-        WEAVIATE_VERSION: '1.24.4'
+        WEAVIATE_VERSION: '1.26.3'
         MODULES: 'text2vec-contextionary'
       steps:
         - name: Checkout repository
@@ -187,14 +197,19 @@ jobs:
                   echo "Error: Contextionary replicas count is not equal to 1. Found $contextionary"
                   exit 1
               fi
+              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: Weaviate metrics is not listening, returned $error"
+                exit 1
+              fi
     run-weaviate-local-k8s-upgrade:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s upgrade from non-RAFT to non-RAFT with basic parameters
       env:
         WORKERS: '2'
         REPLICAS: '2'
-        WEAVIATE_VERSION: '1.24.9'
-        UPGRADE_VERSION: '1.24.11'
+        WEAVIATE_VERSION: '1.26.2'
+        UPGRADE_VERSION: '1.26.3'
         HELM_BRANCH: 'v16.8.8'
       steps:
         - name: Checkout repository
@@ -234,6 +249,11 @@ jobs:
                     exit 1
                 fi
             done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
     run-weaviate-local-k8s-raft-upgrade:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s upgrade to RAFT with basic parameters
@@ -280,13 +300,18 @@ jobs:
                     exit 1
                 fi
             done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
     run-weaviate-local-k8s-backup:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with support for backup
       env:
         WORKERS: '1'
         REPLICAS: '5'
-        WEAVIATE_VERSION: '1.24.3'
+        WEAVIATE_VERSION: '1.26.3'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -317,6 +342,11 @@ jobs:
                     exit 1
                 fi
             done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
             echo "Create a collection"
             curl -X POST -H "Content-Type: application/json" \
               -d '{

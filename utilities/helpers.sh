@@ -35,6 +35,20 @@ function wait_for_minio() {
         else
             echo 'Bucket minio/weaviate-backups already exists.';
         fi;"
+        # Wait for the pod/minio-mc to complete
+        timeout=100  # Timeout in seconds
+        elapsed=0    # Elapsed time counter
+
+        while [[ $(kubectl get pod minio-mc -n weaviate -o jsonpath='{.status.phase}') != "Succeeded" ]]; do
+            if [[ $elapsed -ge $timeout ]]; then
+                echo "Timeout of $timeout seconds reached. Exiting..."
+                exit 1
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+
+        echo "Pod minio-mc has completed successfully."
     fi
 }
 
@@ -181,6 +195,8 @@ function port_forward_to_weaviate() {
 
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
 
+    /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
+
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
 
@@ -195,6 +211,7 @@ function generate_helm_values() {
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
                         --set env.LOG_LEVEL=info \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
+                        --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true"
 
     # Declare MODULES_ARRAY variable
@@ -227,7 +244,7 @@ function generate_helm_values() {
     fi
 
     if [[ $OBSERVABILITY == "true" ]]; then
-        helm_values="${helm_values}  --set env.PROMETHEUS_MONITORING_ENABLED=true --set serviceMonitor.enabled=true"
+        helm_values="${helm_values} --set serviceMonitor.enabled=true"
     fi
 
     # Check if VALUES_INLINE variable is not empty
@@ -318,7 +335,8 @@ function check_and_pull_image() {
 function use_local_images() {
 
     WEAVIATE_IMAGES=(
-            "semitechnologies/weaviate:${WEAVIATE_VERSION}"
+                "semitechnologies/weaviate:${WEAVIATE_VERSION}"
+                "alpine"
     )
     if [[ $MODULES != "" ]]; then
         # Determine the images to be used in the local k8s cluster based on the MODULES variable
@@ -335,8 +353,7 @@ function use_local_images() {
                 ;;
             # Add more cases as needed for other modules
             *)
-                echo "Unknown module: $MODULES"
-                exit 1
+                echo "Unknown module: $MODULES. No additional images will be used."
                 ;;
         esac
     fi
