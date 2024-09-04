@@ -339,23 +339,27 @@ function use_local_images() {
                 "alpine"
     )
     if [[ $MODULES != "" ]]; then
-        # Determine the images to be used in the local k8s cluster based on the MODULES variable
-        case "$MODULES" in
-            "text2vec-transformers")
-                WEAVIATE_IMAGES+=(
-                    "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
-                )
-                ;;
-            "text2vec-contextionary")
-                WEAVIATE_IMAGES+=(
-                    "semitechnologies/contextionary:en0.16.0-v1.2.1"
-                )
-                ;;
-            # Add more cases as needed for other modules
-            *)
-                echo "Unknown module: $MODULES. No additional images will be used."
-                ;;
-        esac
+        # Splitting $MODULES by comma and iterating over each module
+        IFS=',' read -ra MODULES_ARRAY <<< "$MODULES"
+        for MODULE in "${MODULES_ARRAY[@]}"; do
+            # Add module images to WEAVIATE_IMAGES array
+            case "$MODULE" in
+                "text2vec-transformers")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx"
+                    )
+                    ;;
+                "text2vec-contextionary")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/contextionary:en0.16.0-v1.2.1"
+                    )
+                    ;;
+                # Add more cases as needed for other modules
+                *)
+                    echo "Unknown module: $MODULE. No additional images will be used."
+                    ;;
+            esac
+        done
     fi
     echo_green "Uploading local images to the cluster"
     for image in "${WEAVIATE_IMAGES[@]}"; do
