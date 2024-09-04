@@ -23,6 +23,7 @@ REQUIREMENTS=(
 # client = weaviate.connect_to_local(host="host.docker.internal")
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
+WEAVIATE_METRICS=${WEAVIATE_METRICS:-2112}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -55,6 +56,8 @@ function upgrade() {
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         use_local_images
+        # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
+        VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
     fi
 
     if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
@@ -127,6 +130,8 @@ EOF
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         use_local_images
+        # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
+        VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
     fi
 
     # Create namespace
@@ -170,6 +175,7 @@ EOF
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate
     wait_weaviate
+    wait_for_other_services
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
