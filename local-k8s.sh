@@ -42,9 +42,16 @@ function get_timeout() {
     # and calculate the timeout value based on the number of replicas
     modules_timeout=0
     if [ -n "$MODULES" ]; then
-        modules_timeout=1200
+        modules_timeout=$((modules_timeout + 1200))
     fi
-    echo "$((modules_timeout + (REPLICAS * 90)))s"
+    if [ "$ENABLE_BACKUP" == "true" ] || [ "$S3_OFFLOAD" == "true" ]; then
+        modules_timeout=$((modules_timeout + 100))
+    fi
+    if [ "$OBSERVABILITY" == "true" ]; then
+        modules_timeout=$((modules_timeout + 100))
+    fi
+
+    echo "$((modules_timeout + (REPLICAS * 100)))s"
 }
 
 function upgrade() {

@@ -279,7 +279,7 @@ function setup_helm () {
         helm repo update
         TARGET="weaviate/weaviate"
     fi
-    
+
 }
 
 function setup_monitoring () {
@@ -360,6 +360,11 @@ function use_local_images() {
                     ;;
             esac
         done
+    fi
+    if [ "$OBSERVABILITY" == "true" ]; then
+        WEAVIATE_IMAGES+=(
+            "grafana/grafana-image-renderer:latest"
+        )
     fi
     echo_green "Uploading local images to the cluster"
     for image in "${WEAVIATE_IMAGES[@]}"; do
