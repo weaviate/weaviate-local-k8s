@@ -209,7 +209,6 @@ function generate_helm_values() {
                         --set replicas=$REPLICAS \
                         --set grpcService.enabled=true \
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
-                        --set env.LOG_LEVEL=info \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true"
