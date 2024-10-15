@@ -197,6 +197,11 @@ EOF
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
         echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
     fi
+
+    if [[ $QUERIER == "true" ]]; then
+	echo_green "setup # Querier grpc is accessible on localhost:$QUERIER_GRPC_PORT"
+	echo_green "setup # Querier metrics server is accessible on http://localhost:$QUERIER_METRICS_PORT"
+    fi
 }
 
 function clean() {
