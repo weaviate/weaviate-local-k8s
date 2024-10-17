@@ -139,3 +139,16 @@ Make sure your images are present in your environment, as otherwise the script w
 This action is invoked from a GitHub Actions workflow using the uses keyword followed by the action's repository and version. Input values can be provided using the with keyword within the workflow YAML file.
 
 For local execution of the local-k8s.sh script, ensure you have the necessary dependencies installed and then execute the script with one of the supported options: setup, upgrade, or clean.
+
+### Using experimental `querier`
+
+We added experimental support for running stateless querier in our helm chart. To play with `querier`.
+
+1. COPY example overrides files from `overrides/querier.yaml` to `values-overrides.yaml` to the root of the repo
+```bash
+cp overrides/querier.yaml values-override.yaml
+```
+2. RUN the script with `QUERIER=true` flag
+```bash
+QUERIER=true S3_OFFLOAD="true" HELM_BRANCH="kavirajk/helm-chart-support-experimental-querier" ./local-k8s.sh setup
+```

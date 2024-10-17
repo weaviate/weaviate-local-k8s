@@ -1,0 +1,19 @@
+# COPY it to value-overrides.yaml to the root of the repo to run querier deployment
+
+# Runs querier deployment
+experimental:
+  querier:
+    enabled: true
+
+# Closest weaviate core that has some interesting metrics to monitor querying offloaded tenants.
+image:
+  tag: main-b5da000
+
+offload:
+  s3:
+    enabled: true
+
+modules:
+  text2vec-contextionary:
+    enabled: true
+default_vectorizer_module: text2vec-contextionary
