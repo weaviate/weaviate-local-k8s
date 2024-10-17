@@ -9,6 +9,10 @@ experimental:
 image:
   tag: main-b5da000
 
+# this would keep `weaviate_` prefix for all the weaviate metrics.
+env:
+  PROMETHEUS_MONITORING_METRIC_NAMESPACE: "weaviate"
+
 offload:
   s3:
     enabled: true
