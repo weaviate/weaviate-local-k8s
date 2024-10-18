@@ -200,7 +200,7 @@ function port_forward_to_weaviate() {
     if [[ $QUERIER == "true" ]]; then
 	/tmp/kubectl-relay svc/querier -n weaviate ${QUERIER_GRPC_PORT}:7071 -n weaviate &> /tmp/weaviate_querier_grpc_frwd.log &
 
-	/tmp/kubectl-relay svc/querier -n weaviate ${QUERIER_METRICS_PORT}:8081 -n weaviate &> /tmp/weaviate_querier_metrics_frwd.log &
+	/tmp/kubectl-relay svc/querier -n weaviate ${QUERIER_METRICS_PORT}:2113 -n weaviate &> /tmp/weaviate_querier_metrics_frwd.log &
     fi
 
     if [[ $OBSERVABILITY == "true" ]]; then
