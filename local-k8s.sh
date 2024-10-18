@@ -24,6 +24,11 @@ REQUIREMENTS=(
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 WEAVIATE_METRICS=${WEAVIATE_METRICS:-2112}
+
+QUERIER=${QUERIER:-"false"}
+QUERIER_GRPC_PORT=${QUERIER_GRPC_PORT:-7071}
+QUERIER_METRICS_PORT=${QUERIER_METRICS_PORT:-2112}
+
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -191,6 +196,11 @@ EOF
     if [[ $OBSERVABILITY == "true" ]]; then
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
         echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
+    fi
+
+    if [[ $QUERIER == "true" ]]; then
+	echo_green "setup # Querier grpc is accessible on localhost:$QUERIER_GRPC_PORT"
+	echo_green "setup # Querier metrics server is accessible on http://localhost:$QUERIER_METRICS_PORT"
     fi
 }
 
