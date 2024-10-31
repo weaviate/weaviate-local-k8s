@@ -153,6 +153,7 @@ function wait_for_raft_sync() {
 }
 
 function port_forward_to_weaviate() {
+    replicas=$1
     echo_green "Port-forwarding to Weaviate cluster"
     # Install kube-relay tool to perform port-forwarding
     # Check if kubectl-relay binary is available
@@ -196,6 +197,11 @@ function port_forward_to_weaviate() {
     /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
 
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
+
+    # Loop over replicas and port-forward to each node to port ${WEAVIATE_METRICS} + i
+    for i in $(seq 0 $((replicas-1))); do
+        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_METRICS+1+i)):2112 &> /tmp/weaviate_metrics_frwd_${i}.log &
+    done
 
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
