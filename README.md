@@ -16,6 +16,9 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **enable-backup**: When set to true it configures Weaviate to support S3 backups using MinIO. Refer to the [backup and restore](https://weaviate.io/developers/weaviate/configuration/backups#) documentation for more information.
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
+- **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
+- **rbac-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
+- **debug**: When set to true it will run the script in debug mode (set -x). (Optional, default: 'false')
 
 ### Usage
 To use this action in your GitHub Actions workflow, you can add the following step:
@@ -67,6 +70,8 @@ You can also execute the local-k8s.sh script locally. Ensure you have the requir
 Then, you can execute the script with the desired option:
 
 ```bash
+#Setup Weaviate instance with RBAC enabled (default admin user only)
+WEAVIATE_VERSION="1.28.0" RBAC=true REPLICAS=3 ./local-k8s.sh setup
 
 # Setup Weaviate on local Kubernetes
 WEAVIATE_VERSION="1.24.4" REPLICAS=3 ./local-k8s.sh setup
@@ -90,6 +95,8 @@ The environment variables that can be passed are:
 - **REPLICAS**
 - **HELM_BRANCH**
 - **MODULES**
+- **RBAC**
+- **AUTH_CONFIG**
 
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
@@ -139,3 +146,105 @@ Make sure your images are present in your environment, as otherwise the script w
 This action is invoked from a GitHub Actions workflow using the uses keyword followed by the action's repository and version. Input values can be provided using the with keyword within the workflow YAML file.
 
 For local execution of the local-k8s.sh script, ensure you have the necessary dependencies installed and then execute the script with one of the supported options: setup, upgrade, or clean.
+
+## Authentication and Authorization
+
+The repository supports configuring authentication and authorization through a YAML configuration file. This file can be passed using the `AUTH_CONFIG` environment variable when running the script locally, or via the `auth-config` input parameter when using the GitHub Action.
+
+The configuration file supports the following authentication methods:
+
+1. **Anonymous Access**: Enable/disable unauthenticated access to Weaviate
+   ```yaml
+   authentication:
+     anonymous_access:
+       enabled: true
+   ```
+
+2. **API Key Authentication**: Configure API key-based authentication with associated users
+   ```yaml
+   authentication:
+     apikey:
+       enabled: true
+       allowed_keys:
+         - readOnly-plainText-API-Key
+         - admin-plainText-API-Key
+       users:
+         - api-key-user-readOnly
+         - api-key-user-admin
+   ```
+
+3. **OIDC Authentication**: Enable OpenID Connect authentication
+   ```yaml
+   authentication:
+     oidc:
+       enabled: true
+       issuer: ''
+       username_claim: ''
+       groups_claim: ''
+       client_id: ''
+   ```
+
+For authorization, two methods are supported:
+
+1. **RBAC**: Role-Based Access Control with admin and viewer roles
+   ```yaml
+   authorization:
+     rbac:
+       enabled: true
+       admins:
+         - admin_user1
+         - admin_user2
+       viewers:
+         - viewer_user1
+         - readonly_user1
+   ```
+
+2. **Admin List**: Simple admin/readonly user list
+   ```yaml
+   authorization:
+     admin_list:
+       enabled: true
+       users:
+         - admin_user1
+         - admin_user2
+       read_only_users:
+         - readonly_user1
+         - readonly_user2
+   ```
+
+Example usage:
+
+```bash
+AUTH_CONFIG="./auth-config.yaml" WEAVIATE_VERSION="1.27.6" REPLICAS=1 WORKERS=1 ./local-k8s.sh setup
+```
+
+### RBAC
+
+Role-Based Access Control (RBAC) is integrated into this repository to manage and secure access to Weaviate. To facilitate configuration, a test example is provided in the `rbac.yaml.example` file.
+
+You have two options to configure RBAC:
+
+1. **Enable RBAC with Default Settings:**
+
+   Simply set the `RBAC` environment variable to `true` when running the setup script. This enables RBAC using the default configuration, which creates an admin user with admin role and the API key be `admin-key`.
+
+   ```bash
+   RBAC=true WEAVIATE_VERSION="1.28.6" REPLICAS=1 WORKERS=1 ./local-k8s.sh setup
+   ```
+
+2. **Use a Custom RBAC Configuration:**
+
+   For a customized RBAC setup, specify the path to your YAML configuration file using the `AUTH_CONFIG` environment variable. This allows you to define specific roles, users, and permissions as needed.
+
+   ```bash
+   RBAC=true AUTH_CONFIG="./custom-rbac.yaml" WEAVIATE_VERSION="1.28.2" REPLICAS=4 WORKERS=3 ./local-k8s.sh setup
+   ```
+
+   Make sure to create and configure your `custom-rbac.yaml` based on the structure provided in `rbac.yaml.example`.
+
+By leveraging RBAC, you can ensure that access to Weaviate is managed securely and tailored to your specific requirements.
+
+```
+
+
+

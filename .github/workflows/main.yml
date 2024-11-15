@@ -5,13 +5,23 @@ on:
     types: [opened, synchronize]
 
 jobs:
+    get-latest-weaviate-version:
+      runs-on: ubuntu-latest
+      name: Get latest Weaviate version
+      outputs:
+        LATEST_WEAVIATE_VERSION: ${{ steps.latest-version.outputs.latest_weaviate_version }}
+      steps:
+        - name: Retrieve latest Weaviate version
+          id: latest-version
+          uses: weaviate/github-common-actions/.github/actions/get-latest-weaviate-version@main
     run-weaviate-local-k8s-basic:
+      needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with basic parameters
       env:
         WORKERS: '3'
         REPLICAS: '5'
-        WEAVIATE_VERSION: '1.26.3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -47,16 +57,21 @@ jobs:
               exit 1
             fi
     run-weaviate-local-k8s-all-params:
+      needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action passing all parameters
       env:
         WORKERS: '3'
         REPLICAS: '6'
-        WEAVIATE_VERSION: '1.25.0'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'master'
+        S3_OFFLOAD: 'true'
+        MODULES: 'text2vec-contextionary'
         ENABLE_BACKUP: 'true'
+        RBAC: 'true'
+        AUTH_CONFIG: '/tmp/rbac-config.yaml' 
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -67,20 +82,54 @@ jobs:
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
+        # Creates the rbac-config.yaml in /tmp because otherwise the action
+        # will override the file in the repository root, as there is another checkout within
+        # the composite action.
+        - name: Create RBAC config file
+          run: |
+            cat > /tmp/rbac-config.yaml << 'EOF'
+            authentication:
+              anonymous_access:
+                enabled: false
+              apikey:
+                enabled: true
+                allowed_keys:
+                  - admin-key
+                  - reader-key
+                users:
+                  - admin
+                  - reader
+              oidc:
+                enabled: false
+            authorization:
+              rbac:
+                enabled: true
+                admins:
+                  - admin
+                viewers:
+                  - reader
+              admin_list:
+                enabled: false
+            EOF
         - name: Deploy weaviate-local-k8s from current branch.
           id: invoke-local-k8s
           uses: ./
           with:
-              workers: ${{ env.WORKERS }}
-              replicas: ${{ env.REPLICAS }}
-              weaviate-version: ${{ env.WEAVIATE_VERSION }}
-              weaviate-port: ${{ env.WEAVIATE_PORT }}
-              weaviate-grpc-port: ${{ env.WEAVIATE_GRPC_PORT }}
-              helm-branch: ${{ env.HELM_BRANCH }}
-              values-override: ${{ env.VALUES_OVERRIDE }}
-              enable-backup: ${{ env.ENABLE_BACKUP }}
-              values-inline: ${{ env.VALUES_INLINE }}
-              observability: 'true'
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            weaviate-port: ${{ env.WEAVIATE_PORT }}
+            weaviate-grpc-port: ${{ env.WEAVIATE_GRPC_PORT }}
+            helm-branch: ${{ env.HELM_BRANCH }}
+            values-override: ${{ env.VALUES_OVERRIDE }}
+            s3-offload: ${{ env.S3_OFFLOAD }}
+            modules: ${{ env.MODULES }}
+            enable-backup: ${{ env.ENABLE_BACKUP }}
+            values-inline: ${{ env.VALUES_INLINE }}
+            observability: 'true'
+            rbac: ${{ env.RBAC }}
+            auth-config: ${{ env.AUTH_CONFIG }}
+            debug: 'true'
         - name: Check the configured values
           run: |
               replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
@@ -93,9 +142,9 @@ jobs:
                   echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
                   exit 1
               fi
-              versions=$(curl -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+              versions=$(curl -H "Authorization: Bearer admin-key" -s http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
               for version in `echo $versions | tr '\n' ' '`; do
-                  if [[ "$version" != "1.25.0" ]]; then
+                  if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
                       echo "Error: Version is not equal to 1.25.0. Found $version"
                       exit 1
                   fi
@@ -161,12 +210,13 @@ jobs:
                   exit 1
               fi
     run-weaviate-local-k8s-with-module:
+      needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with text2vec-contextionary module
       env:
         WORKERS: '2'
         REPLICAS: '3'
-        WEAVIATE_VERSION: '1.26.3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         MODULES: 'text2vec-contextionary'
       steps:
         - name: Checkout repository
@@ -208,58 +258,6 @@ jobs:
                 echo "Error: Weaviate metrics is not listening, returned $error"
                 exit 1
               fi
-    run-weaviate-local-k8s-upgrade:
-      runs-on: ubuntu-latest
-      name: Invoke weaviate-local-k8s upgrade from non-RAFT to non-RAFT with basic parameters
-      env:
-        WORKERS: '2'
-        REPLICAS: '2'
-        WEAVIATE_VERSION: '1.26.2'
-        UPGRADE_VERSION: '1.26.3'
-        HELM_BRANCH: 'v16.8.8'
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v2
-        - name: Deploy weaviate-local-k8s from current branch.
-          id: invoke-local-k8s
-          uses: ./
-          with:
-            workers: ${{ env.WORKERS }}
-            replicas: ${{ env.REPLICAS }}
-            helm-branch: ${{ env.HELM_BRANCH }}
-            weaviate-version: ${{ env.WEAVIATE_VERSION }}
-        - name: Upgrade weaviate-local-k8s to non-RAFT from current branch.
-          uses: ./
-          with:
-            operation: upgrade
-            workers: ${{ env.WORKERS }}
-            replicas: ${{ env.REPLICAS }}
-            helm-branch: ${{ env.HELM_BRANCH }}
-            weaviate-version: ${{ env.UPGRADE_VERSION }}
-        - name: Check the configured values
-          run: |
-            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
-            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
-                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
-                exit 1
-            fi
-            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
-            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
-                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
-                exit 1
-            fi
-            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
-            for version in `echo $versions | tr '\n' ' '`; do
-                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
-                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
-                    exit 1
-                fi
-            done
-            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
-            if [[ "$error" -ne 200 ]]; then
-              echo "Error: Weaviate metrics is not listening, returned $error"
-              exit 1
-            fi
     run-weaviate-local-k8s-raft-upgrade:
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s upgrade to RAFT with basic parameters
@@ -286,6 +284,56 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             delete-sts: 'true'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+        - name: Check the configured values
+          run: |
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
+    run-weaviate-local-k8s-upgrade-to-latest:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s upgrade to latest version
+      env:
+        WORKERS: '3'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: "1.26.0"
+        UPGRADE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+        - name: Upgrade weaviate-local-k8s to latest version from current branch.
+          uses: ./
+          with:
+            operation: upgrade
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.UPGRADE_VERSION }}
         - name: Check the configured values
           run: |
@@ -370,5 +418,47 @@ jobs:
               echo "The backup has been started."
             else
               echo "The backup status is not STARTED/SUCCEEDED or the json output is not the expected."
+              exit 1
+            fi
+    run-weaviate-local-k8s-rbac:
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with RBAC support (admin-key and admin-user)
+      env:
+        WORKERS: '1'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: '1.28.2'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            rbac: 'true'
+        - name: Check the configured values
+          run: |
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -H "Authorization: Bearer admin-key" -s  http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "1.28.2" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
