@@ -58,7 +58,18 @@ inputs:
     description: 'Enable observability stack'
     required: false
     default: 'false'
-
+  rbac:
+    description: 'Enable RBAC. By default it will create an admin user with admin role and the API key be `admin-key`'
+    required: false
+    default: 'false'
+  auth-config:
+    description: 'File location containing the authentication and authorization configuration in YAML format'
+    required: false
+    default: ''
+  debug:
+    description: 'Run the action in debug mode (set -x)'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -73,6 +84,7 @@ runs:
       shell: bash
       env:
         OPERATION: ${{ inputs.operation }}
+        DEBUG: ${{ inputs.debug }}
         WEAVIATE_PORT: ${{ inputs.weaviate-port }}
         WEAVIATE_GRPC_PORT: ${{ inputs.weaviate-grpc-port }}
         WORKERS: ${{ inputs.workers }}
@@ -85,6 +97,8 @@ runs:
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}
+        RBAC: ${{ inputs.rbac }}
+        AUTH_CONFIG: ${{ inputs.auth-config }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
