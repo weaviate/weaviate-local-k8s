@@ -340,8 +340,8 @@ function check_and_pull_image() {
 function use_local_images() {
 
     WEAVIATE_IMAGES=(
-                "semitechnologies/weaviate:${WEAVIATE_VERSION}"
-                "alpine"
+                "${WEAVIATE_IMAGE_PREFIX}/weaviate:${WEAVIATE_VERSION}"
+                "alpine:3.20"
     )
     if [[ $MODULES != "" ]]; then
         # Splitting $MODULES by comma and iterating over each module
