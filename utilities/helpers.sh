@@ -21,53 +21,110 @@ function startup_minio() {
     kubectl apply -f "$(dirname "$0")/manifests/minio-dev.yaml"
 }
 
+function show_help() {
+    cat << EOF
+Usage: $0 <command> [flags] [ENV_VARS]
+
+Commands:
+    setup     Create and configure a local Kubernetes cluster with Weaviate
+    upgrade   Upgrade an existing Weaviate installation
+    clean     Remove the local Kubernetes cluster and all resources
+
+Flags:
+    --local-images    Upload local Docker images to the cluster instead of pulling from registry
+
+Environment Variables:
+  Cluster Configuration:
+    WORKERS              Number of worker nodes in the Kind cluster (default: 0)
+    REPLICAS            Number of Weaviate replicas to deploy (default: 1)
+    WEAVIATE_VERSION    Specific Weaviate version to deploy (required)
+    DEBUG                Run the script in debug mode (set -x) (default: false)
+
+  Network Configuration:
+    WEAVIATE_PORT       HTTP API port (default: 8080)
+    WEAVIATE_GRPC_PORT  gRPC API port (default: 50051)
+    WEAVIATE_METRICS    Metrics port (default: 2112)
+
+  Feature Flags:
+    OBSERVABILITY       Enable Prometheus and Grafana monitoring (default: true)
+    RBAC               Enable Role-Based Access Control (default: false)
+    AUTH_CONFIG        Path to custom authentication and authorization configuration file (optional)
+    ENABLE_BACKUP      Enable backup functionality with MinIO (default: false)
+    S3_OFFLOAD         Enable S3 data offloading with MinIO (default: false)
+
+  Deployment Options:
+    MODULES            Comma-separated list of Weaviate modules to enable (default: "")
+                      Available modules: https://weaviate.io/developers/weaviate/model-providers
+    HELM_BRANCH        Specific branch of weaviate-helm to use (default: "")
+    VALUES_INLINE      Additional Helm values to pass inline (default: "")
+    DELETE_STS         Delete StatefulSet during upgrade (default: false)
+
+Examples:
+    # Basic setup with single node
+    WEAVIATE_VERSION="1.28.0" ./local-k8s.sh setup
+
+    # Multi-node setup with monitoring disabled
+    WORKERS=1 REPLICAS=3 WEAVIATE_VERSION="1.28.0" OBSERVABILITY=false ./local-k8s.sh setup
+
+    # Setup with RBAC enabled
+    WEAVIATE_VERSION="1.28.0" RBAC=true ./local-k8s.sh setup
+
+    # Setup with custom authentication and authorization configuration
+    WEAVIATE_VERSION="1.27.0" RBAC=true AUTH_CONFIG="./auth-config.yaml" ./local-k8s.sh setup
+
+    # Setup with modules and backup enabled
+    WEAVIATE_VERSION="1.28.0" MODULES="text2vec-transformers" ENABLE_BACKUP=true ./local-k8s.sh setup
+
+    # Clean up all resources
+    ./local-k8s.sh clean
+
+Notes:
+    - When using Mac with Docker, use 'host.docker.internal' instead of 'localhost' 
+      for container connectivity
+    - RBAC default configuration creates a single admin user with 'admin-key'
+    - Monitoring (when enabled) provides Grafana (port 3000) and Prometheus (port 9091)
+EOF
+}
+
 function wait_for_minio() {
     kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
     echo_green "Minio is ready"
     if [[ $ENABLE_BACKUP == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
-        echo_green "Creating Minio bucket"
-        kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
-        /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
-        if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
-            /usr/bin/mc mb minio/weaviate-backups;
-            /usr/bin/mc policy set public minio/weaviate-backups;
+        # Check if the minio-mc pod already exists and delete it if necessary
+        if kubectl get pod minio-mc -n weaviate &>/dev/null; then
+            echo_yellow "Pod minio-mc already exists, skipping creation..."
         else
-            echo 'Bucket minio/weaviate-backups already exists.';
-        fi;"
-        # Wait for the pod/minio-mc to complete
-        timeout=100  # Timeout in seconds
-        elapsed=0    # Elapsed time counter
+            echo_green "Creating Minio bucket"
+            kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
+            /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
+            if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
+                /usr/bin/mc mb minio/weaviate-backups;
+                /usr/bin/mc policy set public minio/weaviate-backups;
+            else
+                echo 'Bucket minio/weaviate-backups already exists.';
+            fi;"
+            # Wait for the pod/minio-mc to complete
+            timeout=100  # Timeout in seconds
+            elapsed=0    # Elapsed time counter
 
-        while [[ $(kubectl get pod minio-mc -n weaviate -o jsonpath='{.status.phase}') != "Succeeded" ]]; do
-            if [[ $elapsed -ge $timeout ]]; then
-                echo "Timeout of $timeout seconds reached. Exiting..."
-                exit 1
-            fi
-            sleep 1
-            elapsed=$((elapsed + 1))
-        done
+            while [[ $(kubectl get pod minio-mc -n weaviate -o jsonpath='{.status.phase}') != "Succeeded" ]]; do
+                if [[ $elapsed -ge $timeout ]]; then
+                    echo "Timeout of $timeout seconds reached. Exiting..."
+                    exit 1
+                fi
+                sleep 1
+                elapsed=$((elapsed + 1))
+            done
 
-        echo "Pod minio-mc has completed successfully."
+            echo "Pod minio-mc has completed successfully."
+        fi
     fi
 }
 
 function shutdown_minio() {
     echo_green "Shutting down Minio"
     kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
-}
-
-function wait_weaviate() {
-    echo_green "Wait for Weaviate to be ready"
-    for _ in {1..120}; do
-        if curl -sf -o /dev/null localhost:${WEAVIATE_PORT}; then
-            echo_green "Weaviate is ready"
-            break
-        fi
-
-        echo_yellow "Weaviate is not ready, trying again in 1s"
-        sleep 1
-    done
 }
 
 function wait_for_other_services() {
@@ -83,12 +140,28 @@ function wait_for_other_services() {
     fi
 }
 
+function curl_with_auth() {
+    local url=$1
+    local extra_args=${2:-}  # Optional additional curl arguments
+    
+    auth_enabled=$(is_auth_enabled)
+    curl_cmd="curl -sf ${extra_args}"
+    
+    if [[ "$auth_enabled" == "true" ]]; then
+        bearer_token=$(get_bearer_token)
+        curl_cmd="$curl_cmd -H 'Authorization: Bearer $bearer_token'"
+    fi
+    
+    curl_cmd="$curl_cmd $url"
+    eval "$curl_cmd"
+}
+
 function wait_cluster_join() {
     node=$1
 
     echo_green "Wait for node ${node} to join the cluster"
     for _ in {1..120}; do
-        if curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+        if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes" | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
             echo_green "Node ${node} has joined the cluster"
             break
         fi
@@ -98,9 +171,66 @@ function wait_cluster_join() {
     done
 }
 
+function is_auth_enabled() {
+    env_auth_enabled=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ENABLED")].value}')
+    if [[ "$env_auth_enabled" == "true" ]]; then
+        echo "true"
+    else
+        # Check configmap as fallback
+        config=$(kubectl get configmap -n weaviate weaviate-config -o jsonpath='{.data.conf\.yaml}')
+        if [[ -n "$config" ]] && [[ $(echo "$config" | yq -r '.authentication.apikey.enabled') == "true" ]]; then
+            echo "true"
+        else
+            echo "false"
+        fi
+    fi
+}
+
+function get_bearer_token() {
+    # Check if auth is enabled via env var first (simpler case)
+
+    # if AUTHENTICATION_APIKEY_ALLOWED_KEYS is set, use the first one
+    env_bearer_tokens=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ALLOWED_KEYS")].value}')
+    IFS=',' read -r bearer_token _ <<< "$env_bearer_tokens"
+    if [[ -n "$bearer_token" ]]; then
+        echo "$bearer_token"
+        return
+    fi
+
+
+    # Check configmap as fallback
+    if kubectl get configmap -n weaviate weaviate-config &>/dev/null; then
+        config=$(kubectl get configmap -n weaviate weaviate-config -o jsonpath='{.data.conf\.yaml}')
+        if [[ -n "$config" ]]; then
+            bearer_token=$(echo "$config" | yq -r '.authentication.apikey.allowed_keys[0]')
+            echo "$bearer_token"
+            return
+        fi
+    fi
+ 
+}
+
+function wait_weaviate() {
+    auth_enabled=$(is_auth_enabled)
+
+    echo_green "Wait for Weaviate to be ready"
+    for _ in {1..120}; do
+        if curl_with_auth "localhost:${WEAVIATE_PORT}" "-o /dev/null"; then
+            echo_green "Weaviate is ready"
+            return
+        fi
+
+        echo_yellow "Weaviate is not ready, trying again in 1s"
+        sleep 1
+    done
+    echo_red "Weaviate is not ready"
+    exit 1
+}
+
 function is_node_healthy() {
     node=$1
-    if curl -sf localhost:${WEAVIATE_PORT}/v1/nodes | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q $node; then
+    response=$(curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes")
+    if echo "$response" | jq ".nodes[] | select(.name == \"${node}\" ) | select (.status == \"HEALTHY\" )" | grep -q "$node"; then
         echo "true"
     else
         echo "false"
@@ -111,45 +241,49 @@ function wait_for_all_healthy_nodes() {
     replicas=$1
     echo_green "Wait for all Weaviate $replicas nodes in cluster"
     for _ in {1..120}; do
-        healty_nodes=0
+        healthy_nodes=0
         for i in $(seq 0 $((replicas-1))); do
             node="weaviate-$i"
-            is_healthy=$(is_node_healthy $node)
-            if [ "$is_healthy" == "true" ]; then
-                healty_nodes=$((healty_nodes+1))
+            if [ "$(is_node_healthy "$node")" == "true" ]; then
+                healthy_nodes=$((healthy_nodes+1))
             else
                 echo_yellow "Weaviate node $node is not healthy"
             fi
         done
 
-        if [ "$healty_nodes" == "$replicas" ]; then
+        if [ "$healthy_nodes" == "$replicas" ]; then
             echo_green "All Weaviate $replicas nodes in cluster are healthy"
-            break
+            return
         fi
 
         echo_yellow "Not all Weaviate nodes in cluster are healthy, trying again in 2s"
         sleep 2
     done
+    echo_red "Weaviate $replicas nodes in cluster are not healthy"
+    exit 1
 }
 
 function wait_for_raft_sync() {
     nodes_count=$1
-    if [ "$(curl -s -o /dev/null -w "%{http_code}" localhost:${WEAVIATE_PORT}/v1/cluster/statistics)" == "200" ]; then
+
+    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
         echo_green "Wait for Weaviate Raft schema to be in sync"
         for _ in {1..1200}; do
-            statistics=$(curl -sf http://localhost:${WEAVIATE_PORT}/v1/cluster/statistics)
+            statistics=$(curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics")
             count=$(echo $statistics | jq '.statistics | length')
             synchronized=$(echo $statistics | jq '.synchronized')
             if [ "$count" == "$nodes_count" ] && [ "$synchronized" == "true" ]; then
                 echo_green "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized."
                 echo_green "Weaviate Raft cluster is in sync"
-                break
+                return
             fi
             echo_yellow "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized..."
             echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
             sleep 2
         done
     fi
+    echo_red "Weaviate Raft schema is not in sync"
+    exit 1
 }
 
 function port_forward_to_weaviate() {
@@ -198,9 +332,10 @@ function port_forward_to_weaviate() {
 
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
 
-    # Loop over replicas and port-forward to each node to port ${WEAVIATE_METRICS} + i
+    # Loop over replicas and port-forward to each node to port ${WEAVIATE_METRICS} + i and ${PROFILER_PORT} + i
     for i in $(seq 0 $((replicas-1))); do
         /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_METRICS+1+i)):2112 &> /tmp/weaviate_metrics_frwd_${i}.log &
+        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((PROFILER_PORT+i)):6060 &> /tmp/weaviate_profiler_frwd_${i}.log &
     done
 
     if [[ $OBSERVABILITY == "true" ]]; then
@@ -250,6 +385,37 @@ function generate_helm_values() {
 
     if [[ $OBSERVABILITY == "true" ]]; then
         helm_values="${helm_values} --set serviceMonitor.enabled=true"
+    fi
+
+    # RBAC configuration.
+    # If RBAC is enabled, always enable RBAC in environment
+    # also an AUTH_CONFIG can be provided to override the default authentication and authorization configuration.
+    if [[ $RBAC == "true" ]]; then
+        # Always enable RBAC in environment
+        helm_values="${helm_values} --set authorization.rbac.enabled=true"
+
+
+        if [[ $AUTH_CONFIG == "" ]]; then
+            # Use default RBAC configuration
+            helm_values="${helm_values} \
+                --set authentication.anonymous_access.enabled=false \
+                --set authentication.apikey.enabled=true \
+                --set authentication.apikey.allowed_keys={admin-key} \
+                --set authentication.apikey.users={admin-user} \
+                --set authorization.rbac.admins={admin-user} \
+                --set authorization.admin_list.enabled=false"
+        fi
+    fi
+
+    # Check if AUTH_CONFIG is provided
+    if [[ $AUTH_CONFIG != "" ]]; then 
+        if [[ ! -f "$AUTH_CONFIG" ]]; then
+            echo_red "Auth config file not found at $AUTH_CONFIG"
+            exit 1
+        fi
+
+        # Pass the RBAC config file directly to helm
+        helm_values="${helm_values} -f $AUTH_CONFIG"
     fi
 
     # Check if VALUES_INLINE variable is not empty
