@@ -40,7 +40,7 @@ TARGET=""
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
     # and calculate the timeout value based on the number of replicas
-    modules_timeout=200
+    modules_timeout=0
     if [ -n "$MODULES" ]; then
         modules_timeout=$((modules_timeout + 1200))
     fi
@@ -101,14 +101,6 @@ function upgrade() {
 
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
-    for i in {1..10}; do
-        echo_green "Waiting for readyReplicas status"
-        if kubectl get sts weaviate -n weaviate -o jsonpath='{.status.readyReplicas}' | grep -q "^${REPLICAS}$"; then
-            echo_green "Found readyReplicas status"
-            break
-        fi
-        sleep 20
-    done
     echo_green "upgrade # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=$REPLICAS --timeout=$TIMEOUT
     echo_green "upgrade # Waiting for rollout upgrade to be over"
@@ -186,6 +178,15 @@ EOF
 
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
+        for i in {1..10}; do
+
+        if kubectl get sts weaviate -n weaviate -o jsonpath='{.status.readyReplicas}' | grep -q "^${REPLICAS}$"; then
+            echo_green "setup # Found readyReplicas status"
+            break
+        fi
+        echo_green "setup # Waiting 20s for readyReplicas status to be available"
+        sleep 20
+    done
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate $REPLICAS
