@@ -30,7 +30,7 @@ S3_OFFLOAD=${S3_OFFLOAD:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
-REPLICAS=${REPLICAS:-1}
+REPLICAS=${REPLICAS:-3}
 OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
@@ -40,7 +40,7 @@ TARGET=""
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
     # and calculate the timeout value based on the number of replicas
-    modules_timeout=0
+    modules_timeout=200
     if [ -n "$MODULES" ]; then
         modules_timeout=$((modules_timeout + 1200))
     fi
@@ -101,8 +101,16 @@ function upgrade() {
 
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
+    for i in {1..10}; do
+        echo_green "Waiting for readyReplicas status"
+        if kubectl get sts weaviate -n weaviate -o jsonpath='{.status.readyReplicas}' | grep -q "^${REPLICAS}$"; then
+            echo_green "Found readyReplicas status"
+            break
+        fi
+        sleep 20
+    done
     echo_green "upgrade # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
-    kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
+    kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=$REPLICAS --timeout=$TIMEOUT
     echo_green "upgrade # Waiting for rollout upgrade to be over"
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate $REPLICAS
