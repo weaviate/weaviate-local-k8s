@@ -178,8 +178,7 @@ EOF
 
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
-        for i in {1..10}; do
-
+    for i in {1..10}; do
         if kubectl get sts weaviate -n weaviate -o jsonpath='{.status.readyReplicas}' | grep -q "^${REPLICAS}$"; then
             echo_green "setup # Found readyReplicas status"
             break
