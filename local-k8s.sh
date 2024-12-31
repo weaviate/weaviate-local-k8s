@@ -30,7 +30,7 @@ S3_OFFLOAD=${S3_OFFLOAD:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
-REPLICAS=${REPLICAS:-3}
+REPLICAS=${REPLICAS:-1}
 OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
@@ -102,7 +102,7 @@ function upgrade() {
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
     echo_green "upgrade # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
-    kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=$REPLICAS --timeout=$TIMEOUT
+    kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     echo_green "upgrade # Waiting for rollout upgrade to be over"
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate $REPLICAS
