@@ -178,13 +178,13 @@ EOF
 
     # Wait for Weaviate to be up
     TIMEOUT=$(get_timeout)
-    for i in {1..10}; do
+    for i in {1..40}; do
         if kubectl get sts weaviate -n weaviate -o jsonpath='{.status.readyReplicas}' | grep -q "^${REPLICAS}$"; then
             echo_green "setup # Found readyReplicas status"
             break
         fi
         echo_green "setup # Waiting 20s for readyReplicas status to be available"
-        sleep 20
+        sleep 5
     done
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
