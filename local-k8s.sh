@@ -24,6 +24,7 @@ REQUIREMENTS=(
 WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 WEAVIATE_METRICS=${WEAVIATE_METRICS:-2112}
+PROFILER_PORT=${PROFILER_PORT:-6060}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -35,7 +36,13 @@ OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 TARGET=""
+RBAC=${RBAC:-"false"}
+AUTH_CONFIG=${AUTH_CONFIG:-""}
+DEBUG=${DEBUG:-"false"}
 
+if [[ $DEBUG == "true" ]]; then
+    set -x
+fi
 
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
@@ -196,6 +203,14 @@ EOF
     wait_for_all_healthy_nodes $REPLICAS
     echo_green "setup # Success"
     echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
+    if [[ $RBAC == "true" ]]; then
+        echo_green "setup # RBAC is enabled"
+    fi
+    auth_enabled=$(is_auth_enabled)
+    if [[ "$auth_enabled" == "true" ]]; then
+        bearer_token=$(get_bearer_token)
+        echo_green "setup # You can now access the Weaviate API with the following API key: $bearer_token"
+    fi
     if [[ $OBSERVABILITY == "true" ]]; then
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
         echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
@@ -240,14 +255,14 @@ function clean() {
 
 # Check if any options are passed
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 <options> <flags>"
-    echo "options:"
-    echo "         setup"
-    echo "         clean"
-    echo "         upgrade"
-    echo "flags:"
-    echo "         --local-images (optional) [Upload local images to the cluster]"
+    show_help
     exit 1
+fi
+
+# Show help if requested
+if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    show_help
+    exit 0
 fi
 
 # Check if all requirements are installed
