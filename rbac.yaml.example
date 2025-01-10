@@ -1,0 +1,25 @@
+authentication:
+  anonymous_access:
+    enabled: false
+  apikey:
+    enabled: true
+    allowed_keys:
+    - admin-key
+    - viewer-key
+    - custom-key
+    users:
+    - admin-user
+    - viewer-user
+    - custom-user
+  oidc:
+    enabled: false
+authorization:
+  rbac:
+    enabled: true
+    admins:
+    - admin-user
+    viewers:
+    - viewer-user
+  admin_list:
+    enabled: false
+
