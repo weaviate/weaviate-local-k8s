@@ -36,8 +36,11 @@ REPLICAS=${REPLICAS:-1}
 OBSERVABILITY=${OBSERVABILITY:-"true"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
+KEYCLOAK_PORT=9090
+KEYCLOAK_HOST=keycloak.oidc.svc.cluster.local
 TARGET=""
 RBAC=${RBAC:-"false"}
+OIDC=${OIDC:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
 
@@ -159,6 +162,10 @@ EOF
         startup_minio
     fi
 
+    if [[ $OIDC == "true" ]]; then
+        startup_keycloak
+    fi
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -223,6 +230,9 @@ EOF
     if [[ "$auth_enabled" == "true" ]]; then
         bearer_token=$(get_bearer_token)
         echo_green "setup # You can now access the Weaviate API with the following API key: $bearer_token"
+    fi
+    if [[ $OIDC == "true" ]]; then
+        echo_green "setup # Keycloak is accessible on http://localhost:9090 (admin/admin)"
     fi
     if [[ $OBSERVABILITY == "true" ]]; then
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"

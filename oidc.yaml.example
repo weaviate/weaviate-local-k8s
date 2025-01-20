@@ -1,0 +1,31 @@
+authentication:
+  anonymous_access:
+    enabled: false
+  apikey:
+    enabled: true
+    allowed_keys:
+    - admin-key
+    - editor-key
+    - viewer-key
+    - custom-key
+    users:
+    - admin-user
+    - editor-user
+    - viewer-user
+    - custom-user
+  oidc:
+    enabled: true
+    issuer: http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate
+    username_claim: email
+    groups_claim: groups
+    client_id: demo
+    skip_client_id_check: false
+authorization:
+  rbac:
+    enabled: true
+    admins:
+    - admin-user
+    viewers:
+    - viewer-user
+  admin_list:
+    enabled: false

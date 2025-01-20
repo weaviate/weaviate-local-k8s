@@ -66,6 +66,10 @@ inputs:
     description: 'Enable RBAC. By default it will create an admin user with admin role and the API key be `admin-key`'
     required: false
     default: 'false'
+  oidc:
+    description: 'Enable OIDC authentication. By default it will only enable OIDC in the environment, no user will be created or configured unless passing AUTH_CONFIG or RBAC=true without AUTH_CONFIG.'
+    required: false
+    default: 'false'
   auth-config:
     description: 'File location containing the authentication and authorization configuration in YAML format'
     required: false
@@ -102,6 +106,7 @@ runs:
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}
         RBAC: ${{ inputs.rbac }}
+        OIDC: ${{ inputs.oidc }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION

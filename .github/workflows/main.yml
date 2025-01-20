@@ -56,6 +56,7 @@ jobs:
                     exit 1
                 fi
             done
+            sleep 2 # Wait for the metrics to be available
             error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
             if [[ "$error" -ne 200 ]]; then
               echo "Error: Weaviate metrics is not listening, returned $error"
@@ -83,6 +84,7 @@ jobs:
         MODULES: 'text2vec-contextionary'
         ENABLE_BACKUP: 'true'
         RBAC: 'true'
+        OIDC: 'true'
         AUTH_CONFIG: '/tmp/rbac-config.yaml' 
         EXPOSE_PODS: 'true'
         VALUES_OVERRIDE: |
@@ -113,14 +115,17 @@ jobs:
                   - admin
                   - reader
               oidc:
-                enabled: false
+                enabled: true
+                issuer: http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate
+                username_claim: email
+                groups_claim: groups
+                client_id: demo
+                skip_client_id_check: false
             authorization:
               rbac:
                 enabled: true
-                admins:
+                root_users:
                   - admin
-                viewers:
-                  - reader
               admin_list:
                 enabled: false
             EOF
@@ -141,6 +146,7 @@ jobs:
             values-inline: ${{ env.VALUES_INLINE }}
             observability: 'true'
             rbac: ${{ env.RBAC }}
+            oidc: ${{ env.OIDC }}
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
@@ -215,6 +221,16 @@ jobs:
                   echo "Pod $i (gRPC Port $GRPC_PORT): LISTENING"
                 fi
               done
+              if ! grep -q "keycloak.oidc.svc.cluster.local" /etc/hosts; then
+                  echo "Error: 127.0.0.1 keycloak.oidc.svc.cluster.local is not in /etc/hosts"
+                  exit 1
+              fi
+              # Check that it is possible to authenticate with the keycloak
+              curl --fail -s -X POST -d grant_type=password -d client_id=demo -d username=admin -d password=admin http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate/protocol/openid-connect/token | jq -r .access_token
+              if [[ $? -ne 0 ]]; then
+                  echo "Error: Failed to authenticate with the keycloak"
+                  exit 1
+              fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
       name: Create a single-node Weaviate cluster with non existing image.
@@ -293,6 +309,7 @@ jobs:
                   echo "Error: Contextionary replicas count is not equal to 1. Found $contextionary"
                   exit 1
               fi
+              sleep 2 # Wait for the metrics to be available
               error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
               if [[ "$error" -ne 200 ]]; then
                 echo "Error: Weaviate metrics is not listening, returned $error"
@@ -347,6 +364,7 @@ jobs:
                     exit 1
                 fi
             done
+            sleep 2 # Wait for the metrics to be available
             error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
             if [[ "$error" -ne 200 ]]; then
               echo "Error: Weaviate metrics is not listening, returned $error"
@@ -436,6 +454,7 @@ jobs:
             expose-pods: 'true'
         - name: Check the configured values
           run: |
+            set -x
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
             if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                 echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -454,6 +473,7 @@ jobs:
                     exit 1
                 fi
             done
+            sleep 2 # Wait for the metrics to be available
             error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
             if [[ "$error" -ne 200 ]]; then
               echo "Error: Weaviate metrics is not listening, returned $error"
@@ -497,6 +517,7 @@ jobs:
                     exit 1
                 fi
             done
+            sleep 2 # Wait for the metrics to be available
             error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
             if [[ "$error" -ne 200 ]]; then
               echo "Error: Weaviate metrics is not listening, returned $error"
@@ -522,12 +543,13 @@ jobs:
               exit 1
             fi
     run-weaviate-local-k8s-rbac:
+      needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with RBAC support (admin-key and admin-user)
       env:
         WORKERS: '1'
         REPLICAS: '3'
-        WEAVIATE_VERSION: '1.28.2'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -541,6 +563,7 @@ jobs:
             rbac: 'true'
         - name: Check the configured values
           run: |
+            set -x
             replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
             if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
                 echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
@@ -553,11 +576,12 @@ jobs:
             fi
             versions=$(curl -H "Authorization: Bearer admin-key" -s  http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
             for version in `echo $versions | tr '\n' ' '`; do
-                if [[ "$version" != "1.28.2" ]]; then
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
                     echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
                     exit 1
                 fi
             done
+            sleep 2 # Wait for the metrics to be available
             error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
             if [[ "$error" -ne 200 ]]; then
               echo "Error: Weaviate metrics is not listening, returned $error"
@@ -687,11 +711,95 @@ jobs:
             done
             
             # Verify specific port for weaviate-2 (8080 + 2 + 1 = 8083)
-            echo "Checking restarted pod on port 8083"
-            curl -s http://127.0.0.1:8083/v1/nodes | jq -e '.nodes | length == 3'
+            echo "Checking nodes API on port 8083"
+            HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" --retry 5 --retry-delay 5 --max-time 10 http://127.0.0.1:8083/v1/nodes)
+            
+            if [[ "$HTTP_CODE" -ne 200 ]]; then
+              echo "ERROR: Received HTTP $HTTP_CODE response"
+              cat response.json
+              rm response.json
+              exit 1
+            fi
+
+            NODE_COUNT=$(jq '.nodes | length' response.json)
+            if [[ "$NODE_COUNT" -ne 3 ]]; then
+              echo "ERROR: Expected 3 nodes, but found $NODE_COUNT"
+              echo "Nodes list:"
+              jq '.nodes' response.json
+              rm response.json
+              exit 1
+            fi
+
+            echo "Port 8083 verification successful"
+            rm response.json
 
             # Verify gRPC port (simple connectivity check)
             nc -z 127.0.0.1 50054 || exit 1
             
             # Verify metrics endpoint on restarted pod
-            curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics | grep 200
+            curl -s -o /dev/null -w "%{http_code}" http://localhost:2115/metrics | grep 200
+    run-weaviate-local-k8s-oidc:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with OIDC support
+      env:
+        WORKERS: '1'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            oidc: 'true'
+        - name: Check the configured values
+          run: |
+            set -x
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -H -s  http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            sleep 2 # Wait for the metrics to be available
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
+            if ! grep -q "keycloak.oidc.svc.cluster.local" /etc/hosts; then
+                echo "Error: 127.0.0.1 keycloak.oidc.svc.cluster.local is not in /etc/hosts"
+                exit 1
+            fi
+            # Check that it is possible to authenticate with the keycloak
+            auth_info=$(curl --fail -s -X POST -d grant_type=password -d client_id=admin-cli -d username=admin -d password=admin http://keycloak.oidc.svc.cluster.local:9090/realms/master/protocol/openid-connect/token)
+            if [[ $? -ne 0 ]]; then
+                echo "Error: Failed to authenticate with the keycloak"
+                exit 1
+            fi
+            TOKEN=$( echo "$auth_info" | jq -r .access_token )
+            # Check that it possible to create a user
+            curl -s -X POST -d '{"username":"test-user", "enabled":true, "email":"test-user@example.com", "emailVerified":true, "credentials":[{"type":"password","value":"test-password"}]}' \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            http://keycloak.oidc.svc.cluster.local:9090/admin/realms/weaviate/users
+            if [[ $? -ne 0 ]]; then
+                echo "Error: Failed to create a user"
+                exit 1
+            fi
