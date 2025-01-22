@@ -281,9 +281,10 @@ function wait_for_raft_sync() {
             echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
             sleep 2
         done
+        echo_red "Weaviate Raft schema is not in sync"
+        exit 1
     fi
-    echo_red "Weaviate Raft schema is not in sync"
-    exit 1
+
 }
 
 function port_forward_to_weaviate() {
