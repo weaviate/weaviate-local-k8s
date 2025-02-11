@@ -38,6 +38,7 @@ Environment Variables:
     WORKERS              Number of worker nodes in the Kind cluster (default: 0)
     REPLICAS            Number of Weaviate replicas to deploy (default: 1)
     WEAVIATE_VERSION    Specific Weaviate version to deploy (required)
+    EXPOSE_PODS         Expose the Weaviate pods on the host, for http (starts in 8081), grpc (starts in 50052), metrics (starts in 2113) and profiler (starts in 6061) ports, (default: true)
     DEBUG                Run the script in debug mode (set -x) (default: false)
 
   Network Configuration:
@@ -79,7 +80,7 @@ Examples:
     ./local-k8s.sh clean
 
 Notes:
-    - When using Mac with Docker, use 'host.docker.internal' instead of 'localhost' 
+    - When using Mac with Docker, use 'host.docker.internal' instead of 'localhost'
       for container connectivity
     - RBAC default configuration creates a single admin user with 'admin-key'
     - Monitoring (when enabled) provides Grafana (port 3000) and Prometheus (port 9091)
@@ -143,15 +144,15 @@ function wait_for_other_services() {
 function curl_with_auth() {
     local url=$1
     local extra_args=${2:-}  # Optional additional curl arguments
-    
+
     auth_enabled=$(is_auth_enabled)
     curl_cmd="curl -sf ${extra_args}"
-    
+
     if [[ "$auth_enabled" == "true" ]]; then
         bearer_token=$(get_bearer_token)
         curl_cmd="$curl_cmd -H 'Authorization: Bearer $bearer_token'"
     fi
-    
+
     curl_cmd="$curl_cmd $url"
     eval "$curl_cmd"
 }
@@ -207,7 +208,7 @@ function get_bearer_token() {
             return
         fi
     fi
- 
+
 }
 
 function wait_weaviate() {
@@ -327,23 +328,69 @@ function port_forward_to_weaviate() {
         tar -xzf "/tmp/${KUBE_RELAY_FILENAME}" -C /tmp
     fi
 
-    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80 -n weaviate &> /tmp/weaviate_frwd.log &
+    /tmp/kubectl-relay svc/weaviate -n weaviate ${WEAVIATE_PORT}:80  &> /tmp/weaviate_frwd.log &
 
-    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051 -n weaviate &> /tmp/weaviate_grpc_frwd.log &
+    /tmp/kubectl-relay svc/weaviate-grpc -n weaviate ${WEAVIATE_GRPC_PORT}:50051  &> /tmp/weaviate_grpc_frwd.log &
 
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
 
-    # Loop over replicas and port-forward to each node to port ${WEAVIATE_METRICS} + i and ${PROFILER_PORT} + i
-    for i in $(seq 0 $((replicas-1))); do
-        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((WEAVIATE_METRICS+1+i)):2112 &> /tmp/weaviate_metrics_frwd_${i}.log &
-        /tmp/kubectl-relay pod/weaviate-$i -n weaviate $((PROFILER_PORT+i)):6060 &> /tmp/weaviate_profiler_frwd_${i}.log &
-    done
 
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
+
+}
+
+function port_forward_weaviate_pods() {
+
+    if ! command -v /tmp/kubectl-relay &> /dev/null; then
+        echo_red "kubectl-relay is not installed"
+        exit 1
+    fi
+
+    # Create individual services for each pod
+    for i in $(seq 0 $((REPLICAS-1))); do
+        kubectl apply -n weaviate -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-$i
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: weaviate-$i
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+  - name: metrics
+    port: 2112
+    targetPort: 2112
+  - name: profiler
+    port: 6060
+    targetPort: 6060
+EOF
+    done
+
+    # Forward through services instead of direct pod references
+    for i in $(seq 0 $((REPLICAS-1))); do
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 &> /tmp/weaviate_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_GRPC_PORT+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_GRPC_PORT+i+1)):50051 &> /tmp/weaviate_grpc_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_METRICS+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_METRICS+i+1)):2112 &> /tmp/weaviate_metrics_frwd_$i.log &
+        fi
+        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((PROFILER_PORT+i+1))"; then
+            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((PROFILER_PORT+i+1)):6060 &> /tmp/weaviate_profiler_frwd_$i.log &
+        fi
+    done
 }
 
 function generate_helm_values() {
@@ -409,7 +456,7 @@ function generate_helm_values() {
     fi
 
     # Check if AUTH_CONFIG is provided
-    if [[ $AUTH_CONFIG != "" ]]; then 
+    if [[ $AUTH_CONFIG != "" ]]; then
         if [[ ! -f "$AUTH_CONFIG" ]]; then
             echo_red "Auth config file not found at $AUTH_CONFIG"
             exit 1

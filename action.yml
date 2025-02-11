@@ -58,6 +58,10 @@ inputs:
     description: 'Enable observability stack'
     required: false
     default: 'false'
+  expose-pods:
+    description: 'Expose the weaviate-pods to be accessible in weaviate-port + i where i=1,2,3..replicas'
+    required: false
+    default: 'true'
   rbac:
     description: 'Enable RBAC. By default it will create an admin user with admin role and the API key be `admin-key`'
     required: false
@@ -99,6 +103,7 @@ runs:
         OBSERVABILITY: ${{ inputs.observability }}
         RBAC: ${{ inputs.rbac }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
+        EXPOSE_PODS: ${{ inputs.expose-pods }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash

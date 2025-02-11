@@ -25,6 +25,7 @@ WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 WEAVIATE_METRICS=${WEAVIATE_METRICS:-2112}
 PROFILER_PORT=${PROFILER_PORT:-6060}
+EXPOSE_PODS=${EXPOSE_PODS:-"true"}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
@@ -113,6 +114,9 @@ function upgrade() {
     echo_green "upgrade # Waiting for rollout upgrade to be over"
     kubectl -n weaviate rollout status statefulset weaviate
     port_forward_to_weaviate $REPLICAS
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
     wait_for_other_services
 
@@ -196,6 +200,9 @@ EOF
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     port_forward_to_weaviate $REPLICAS
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        port_forward_weaviate_pods
+    fi
     wait_weaviate
     wait_for_other_services
 
@@ -203,6 +210,12 @@ EOF
     wait_for_all_healthy_nodes $REPLICAS
     echo_green "setup # Success"
     echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        echo_green "setup # Pod's ports are forwarded to:"
+        for i in $(seq 0 $((REPLICAS-1))); do
+             echo_green "setup # Weaviate-$i: HTTP=>$((WEAVIATE_PORT+i+1)), GRPC=>$((WEAVIATE_GRPC_PORT+i+1)), METRICS=>$((WEAVIATE_METRICS+i+1)), PROFILER=>$((PROFILER_PORT+i+1))"
+        done
+    fi
     if [[ $RBAC == "true" ]]; then
         echo_green "setup # RBAC is enabled"
     fi
