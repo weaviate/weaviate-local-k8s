@@ -18,7 +18,8 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **expose-pods**: Allows accessing each of the weaviate pods port numbers: http, grpc, metrics and profiler (default: true). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc... The same applies for the gRPC port, so weaviate-0 is exposed on 50052, weaviate-1 in 50053, weaviate-2 in 50054, etc... Similar for metrics, so weaviate-0 is exposed on 2113, weaviate-1 in 2114, weaviate-2 in 2115, etc... and for profiler, so weaviate-0 is exposed on 6061, weaviate-1 in 6062, weaviate-2 in 6063, etc...
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
-- **rbac-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
+- **oidc**: When set to true it will enable OIDC authentication. This will start a keycloak instance and configure it to authenticate with Weaviate. (Optional, default: 'false')
+- **auth-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
 - **debug**: When set to true it will run the script in debug mode (set -x). (Optional, default: 'false')
 
 ### Usage
@@ -97,6 +98,7 @@ The environment variables that can be passed are:
 - **HELM_BRANCH**
 - **MODULES**
 - **RBAC**
+- **OIDC**
 - **AUTH_CONFIG**
 - **EXPOSE_PODS**
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
@@ -179,10 +181,11 @@ The configuration file supports the following authentication methods:
    authentication:
      oidc:
        enabled: true
-       issuer: ''
-       username_claim: ''
-       groups_claim: ''
-       client_id: ''
+       issuer: http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate
+       username_claim: email
+       groups_claim: groups
+       client_id: demo
+       skip_client_id_check: false
    ```
 
 For authorization, two methods are supported:
@@ -245,7 +248,46 @@ You have two options to configure RBAC:
 
 By leveraging RBAC, you can ensure that access to Weaviate is managed securely and tailored to your specific requirements.
 
+### OIDC
+
+OIDC authentication is enabled by setting the `OIDC` environment variable to `true` when running the setup script. This will start a keycloak instance and configure it to authenticate with Weaviate.
+
+```bash
+OIDC=true WEAVIATE_VERSION="1.28.2" REPLICAS=4 WORKERS=3 ./local-k8s.sh setup
 ```
+
+It is also to pass the `auth-config` parameter with the OIDC configuration, for example if you want to configure speicific users for RBAC and OIDC at the same time:
+
+```bash
+OIDC=true RBAC=true AUTH_CONFIG="./auth-rbac-oidc-config.yaml" WEAVIATE_VERSION="1.28.2" REPLICAS=3 WORKERS=3 ./local-k8s.sh setup
+```
+
+### Keycloak
+
+When OIDC is enabled, a Keycloak server is deployed to handle authentication. The server is pre-configured with a realm called "weaviate" and a client called "demo". You can access the Keycloak admin console at http://keycloak.oidc.svc.cluster.local:9090 using:
+
+- Username: admin
+- Password: admin
+
+To help manage users and groups in Keycloak for testing purposes, the following helper scripts are provided:
+
+- `scripts/create_oidc_user.sh`: Creates a new user in Keycloak
+  ```bash
+  ./create_oidc_user.sh -u testuser [-g testgroup]
+  ```
+
+- `scripts/create_oidc_group.sh`: Creates a new group in Keycloak
+  ```bash
+  ./create_oidc_group.sh -g testgroup
+  ```
+
+- `scripts/get_user_token.sh`: Gets an OIDC token for a user
+  ```bash
+  ./get_user_token.sh -u testuser
+  ```
+
+The scripts interact with the Keycloak API to manage users and groups, making it easier to test OIDC authentication with Weaviate.
+
 
 
 

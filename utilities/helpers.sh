@@ -135,6 +135,11 @@ function wait_for_other_services() {
         wait_for_minio
     fi
 
+    # Wait for keycloak to be ready if OIDC is enabled
+    if [[ $OIDC == "true" ]]; then
+        wait_for_keycloak
+    fi
+
     # Wait for monitoring to be ready if observability is enabled
     if [[ $OBSERVABILITY == "true" ]]; then
         wait_for_monitoring
@@ -335,6 +340,12 @@ function port_forward_to_weaviate() {
     /tmp/kubectl-relay sts/weaviate -n weaviate ${WEAVIATE_METRICS}:2112 &> /tmp/weaviate_metrics_frwd.log &
 
 
+    # Port-forward to keycloak if OIDC is enabled
+    if [[ $OIDC == "true" ]]; then
+        /tmp/kubectl-relay svc/keycloak -n oidc ${KEYCLOAK_PORT}:9090 &> /tmp/keycloak_frwd.log &
+    fi
+
+    # Port-forward to prometheus and grafana if observability is enabled
     if [[ $OBSERVABILITY == "true" ]]; then
         /tmp/kubectl-relay svc/prometheus-grafana -n monitoring ${GRAFANA_PORT}:80 &> /tmp/grafana_frwd.log &
 
@@ -450,8 +461,26 @@ function generate_helm_values() {
                 --set authentication.apikey.enabled=true \
                 --set authentication.apikey.allowed_keys={admin-key} \
                 --set authentication.apikey.users={admin-user} \
-                --set authorization.rbac.admins={admin-user} \
+                --set authorization.rbac.root_users={admin-user} \
                 --set authorization.admin_list.enabled=false"
+        fi
+    fi
+
+    # OIDC configuration
+    # If OIDC is enabled, enable OIDC in environment
+    # also an AUTH_CONFIG can be provided to override the default authentication and authorization configuration.
+    if [[ $OIDC == "true" ]]; then
+        # Enable OIDC in environment
+        helm_values="${helm_values} --set authentication.oidc.enabled=true"
+
+        if [[ $AUTH_CONFIG == "" ]]; then
+            # Use default OIDC configuration
+            helm_values="${helm_values} \
+                --set authentication.oidc.issuer=http://${KEYCLOAK_HOST}:9090/realms/weaviate \
+                --set authentication.oidc.username_claim=email \
+                --set authentication.oidc.groups_claim=groups \
+                --set authentication.oidc.client_id=demo \
+                --set authentication.oidc.skip_client_id_check=false"
         fi
     fi
 
@@ -537,6 +566,37 @@ function wait_for_monitoring () {
 
     kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
     echo_green "Grafana Renderer is ready"
+}
+
+function startup_keycloak() {
+    echo_green "Starting up Keycloak"
+
+    # Create oidc namespace 
+    kubectl create namespace oidc
+
+    # Create keycloak realm configmap
+    kubectl create configmap keycloak-realm -n oidc --from-file=weaviate-realm.json="$(dirname "$0")/manifests/keycloak-weaviate-realm.json"
+
+    # Deploy keycloak
+    kubectl apply -f "$(dirname "$0")/manifests/keycloak.yaml"
+
+    # Check if the keycloak host is already in /etc/hosts
+    if ! grep -q "${KEYCLOAK_HOST}" /etc/hosts; then
+        # Add keycloak host to /etc/hosts if the current user has sudo privileges
+        if sudo -n true 2>/dev/null; then
+            echo_green "Adding keycloak host to /etc/hosts [Requires sudo]"
+            sudo sh -c "echo '127.0.0.1 ${KEYCLOAK_HOST}' >> /etc/hosts"
+        else
+            echo_red "Current user does not have sudo privileges. Please add the keycloak host to /etc/hosts manually."
+            echo_red "You can add the following line to /etc/hosts:"
+            echo_red "127.0.0.1 ${KEYCLOAK_HOST}"
+        fi
+    fi
+}
+
+function wait_for_keycloak() {
+    kubectl wait --for=condition=available deployment/keycloak -n oidc --timeout=120s
+    echo_green "Keycloak is ready"
 }
 
 # Function to check if an image exists locally, and if not, pull it
