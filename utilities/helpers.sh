@@ -571,7 +571,7 @@ function wait_for_monitoring () {
 function startup_keycloak() {
     echo_green "Starting up Keycloak"
 
-    # Create oidc namespace 
+    # Create oidc namespace
     kubectl create namespace oidc
 
     # Create keycloak realm configmap
@@ -614,8 +614,8 @@ function check_and_pull_image() {
 function use_local_images() {
 
     WEAVIATE_IMAGES=(
-                "semitechnologies/weaviate:${WEAVIATE_VERSION}"
-                "alpine"
+                "${WEAVIATE_IMAGE_PREFIX}/weaviate:${WEAVIATE_VERSION}"
+                "alpine:3.20"
     )
     if [[ $MODULES != "" ]]; then
         # Splitting $MODULES by comma and iterating over each module
