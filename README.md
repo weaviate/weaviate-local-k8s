@@ -84,6 +84,9 @@ WORKERS=2 WEAVIATE_VERSION="1.24.8" REPLICAS=3 ./local-k8s.sh setup --local-imag
 # Upgrade Weaviate to RAFT configuration
 WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" EXPOSE_PODS=false REPLICAS=3 ./local-k8s.sh upgrade
 
+# Use custome image prefix. e.g: kavirajk/weaviate:1.30.0-dev-a443b9c3af.
+WEAVIATE_IMAGE_PREFIX=kavirajk WEAVIATE_VERSION="1.30.0-dev-a443b9c3af" REPLICAS=3 ./local-k8s.sh setup
+
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
 
@@ -287,7 +290,3 @@ To help manage users and groups in Keycloak for testing purposes, the following 
   ```
 
 The scripts interact with the Keycloak API to manage users and groups, making it easier to test OIDC authentication with Weaviate.
-
-
-
-
