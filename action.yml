@@ -70,6 +70,10 @@ inputs:
     description: 'Enable OIDC authentication. By default it will only enable OIDC in the environment, no user will be created or configured unless passing AUTH_CONFIG or RBAC=true without AUTH_CONFIG.'
     required: false
     default: 'false'
+  dynamic-users:
+    description: 'Enable dynamic user management. Allows users to be created, deleted and updated dynamically from the database'
+    required: false
+    default: 'false'
   auth-config:
     description: 'File location containing the authentication and authorization configuration in YAML format'
     required: false
@@ -107,6 +111,7 @@ runs:
         OBSERVABILITY: ${{ inputs.observability }}
         RBAC: ${{ inputs.rbac }}
         OIDC: ${{ inputs.oidc }}
+        DYNAMIC_USERS: ${{ inputs.dynamic-users }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION

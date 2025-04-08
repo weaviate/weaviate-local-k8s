@@ -19,6 +19,7 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
 - **oidc**: When set to true it will enable OIDC authentication. This will start a keycloak instance and configure it to authenticate with Weaviate. (Optional, default: 'false')
+- **dynamic-users**: When set to true it will enable dynamic user management. Allowing the creation, deletion, activation, deactivation and key rotation of users. (Optional, default: 'false')
 - **auth-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
 - **debug**: When set to true it will run the script in debug mode (set -x). (Optional, default: 'false')
 
@@ -102,6 +103,7 @@ The environment variables that can be passed are:
 - **MODULES**
 - **RBAC**
 - **OIDC**
+- **DYNAMIC_USERS**
 - **AUTH_CONFIG**
 - **EXPOSE_PODS**
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:

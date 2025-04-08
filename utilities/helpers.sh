@@ -446,6 +446,10 @@ function generate_helm_values() {
         helm_values="${helm_values} --set serviceMonitor.enabled=true"
     fi
 
+    if [[ $DYNAMIC_USERS == "true" ]]; then
+        helm_values="${helm_values} --set authentication.db_users.enabled=true"
+    fi
+
     # RBAC configuration.
     # If RBAC is enabled, always enable RBAC in environment
     # also an AUTH_CONFIG can be provided to override the default authentication and authorization configuration.
