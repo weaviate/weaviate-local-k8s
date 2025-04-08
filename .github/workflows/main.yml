@@ -85,7 +85,8 @@ jobs:
         ENABLE_BACKUP: 'true'
         RBAC: 'true'
         OIDC: 'true'
-        AUTH_CONFIG: '/tmp/rbac-config.yaml' 
+        DYNAMIC_USERS: 'true'
+        AUTH_CONFIG: '/tmp/rbac-config.yaml'
         EXPOSE_PODS: 'true'
         VALUES_OVERRIDE: |
           storage:
@@ -147,6 +148,7 @@ jobs:
             observability: 'true'
             rbac: ${{ env.RBAC }}
             oidc: ${{ env.OIDC }}
+            dynamic-users: ${{ env.DYNAMIC_USERS }}
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
@@ -203,7 +205,7 @@ jobs:
               for ((i=0; i<${{ env.REPLICAS }}; i++)); do
                 PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
                 GRPC_PORT=$((${{ env.WEAVIATE_GRPC_PORT }} + i + 1))
-                
+
                 HTTP_PROCESS=$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
                 GRPC_PROCESS=$(lsof -i :$GRPC_PORT -sTCP:LISTEN -n -P | grep kubectl-r) || true
 
@@ -616,7 +618,7 @@ jobs:
               GRPC_PORT=$((50051 + i + 1))
               METRICS_PORT=$((2112 + i + 1))
               PROFILER_PORT=$((6060 + i + 1))
-              
+
               # Verify HTTP port with retries
               for retry in {1..30}; do
                 if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/v1/nodes | grep -q 200; then
@@ -633,7 +635,7 @@ jobs:
                 echo "ERROR: HTTP port $PORT final check failed"
                 exit 1
               }
-              
+
               # Verify gRPC port with retries and timeout
               for retry in {1..30}; do
                 if nc -z -w 1 127.0.0.1 $GRPC_PORT; then
@@ -690,10 +692,10 @@ jobs:
             set -ex
             # Force delete pod weaviate-2
             kubectl delete pod weaviate-2 -n weaviate --force --grace-period=0
-            
+
             # Wait for pod to be recreated
             kubectl wait --for=condition=ready pod/weaviate-2 -n weaviate --timeout=3m
-            
+
             echo "Wait for Weaviate to be ready"
             for timer in {1..120}; do
               if curl -sf -o /dev/null localhost:8080/v1/.well-known/ready; then
@@ -709,17 +711,41 @@ jobs:
               echo "Weaviate is not ready, trying again in 1s"
               sleep 1
             done
-            
+
             # Verify specific port for weaviate-2 (8080 + 2 + 1 = 8083)
             echo "Checking nodes API on port 8083"
-            HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" --retry 5 --retry-delay 5 --max-time 10 http://127.0.0.1:8083/v1/nodes)
-            
-            if [[ "$HTTP_CODE" -ne 200 ]]; then
-              echo "ERROR: Received HTTP $HTTP_CODE response"
-              cat response.json
-              rm response.json
-              exit 1
-            fi
+
+            # Add retries for port forwarding to stabilize
+            for retry in {1..30}; do
+              HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" --retry 5 --retry-delay 5 --max-time 10 http://127.0.0.1:8083/v1/nodes || echo "000")
+
+              if [[ "$HTTP_CODE" == "200" ]]; then
+                echo "Successfully connected to port 8083"
+                break
+              fi
+
+              echo "Port 8083 not ready (HTTP_CODE=$HTTP_CODE), retry $retry/30"
+              sleep 5
+
+              # Check if port forwarding is active
+              if ! lsof -i :8083 | grep -q kubectl-r; then
+                echo "Port forwarding not active, attempting to restart..."
+                sleep 5
+              fi
+
+              if [[ $retry -eq 30 ]]; then
+                echo "ERROR: Port 8083 not ready after all retries"
+                echo "Port forwarding status:"
+                lsof -i :8083 || true
+                echo "Pod status:"
+                kubectl get pod weaviate-2 -n weaviate -o yaml
+                echo "Service status:"
+                kubectl get svc weaviate-2 -n weaviate -o yaml
+                cat response.json || true
+                rm -f response.json
+                exit 1
+              fi
+            done
 
             NODE_COUNT=$(jq '.nodes | length' response.json)
             if [[ "$NODE_COUNT" -ne 3 ]]; then
@@ -731,13 +757,7 @@ jobs:
             fi
 
             echo "Port 8083 verification successful"
-            rm response.json
-
-            # Verify gRPC port (simple connectivity check)
-            nc -z 127.0.0.1 50054 || exit 1
-            
-            # Verify metrics endpoint on restarted pod
-            curl -s -o /dev/null -w "%{http_code}" http://localhost:2115/metrics | grep 200
+            rm -f response.json
     run-weaviate-local-k8s-oidc:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest

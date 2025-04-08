@@ -42,6 +42,7 @@ KEYCLOAK_HOST=keycloak.oidc.svc.cluster.local
 TARGET=""
 RBAC=${RBAC:-"false"}
 OIDC=${OIDC:-"false"}
+DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
 
