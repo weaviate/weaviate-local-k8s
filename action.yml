@@ -121,6 +121,10 @@ runs:
       run: |
         echo "###### WEAVIATE LOGS ######"
         kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate || true
+        echo "###### WEAVIATE PODS ######"
+        kubectl get pods -n weaviate -o wide || true
+        echo "###### WEAVIATE EVENTS ######"
+        kubectl get events -n weaviate || true
         echo "####### WEAVIATE STS CONFIG ######"
         kubectl get sts weaviate -n weaviate -o yaml || true
         echo "####### KUBECTL-RELAY PROCESSES ######"
