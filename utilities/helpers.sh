@@ -644,6 +644,12 @@ function use_local_images() {
             esac
         done
     fi
+    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+       WEAVIATE_IMAGES+=(
+            "minio/minio:latest"
+            "minio/mc:latest"
+       )
+    fi
     if [ "$OBSERVABILITY" == "true" ]; then
         WEAVIATE_IMAGES+=(
             "grafana/grafana-image-renderer:latest"
