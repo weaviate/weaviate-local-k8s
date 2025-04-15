@@ -150,7 +150,7 @@ ${mount_config}
 $([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker
 ${mount_config}"; done)
 EOF
-    conf = $(cat /tmp/kind-config.yaml)
+    conf=$(cat /tmp/kind-config.yaml)
     echo_green "setup # Mounting Docker config file if provided:\n $conf"
     echo_green "setup # Create local k8s cluster"
     # Create k8s Kind Cluster
