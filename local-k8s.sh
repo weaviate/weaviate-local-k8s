@@ -136,7 +136,7 @@ function upgrade() {
 
 function setup() {
     echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
-    mount_config = $([ "${DOCKER_CONFIG}" != "" ] && echo "  extraMounts:
+    mount_config=$([ "${DOCKER_CONFIG}" != "" ] && echo "  extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${DOCKER_CONFIG}")
     # Create Kind config file
