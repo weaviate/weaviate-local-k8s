@@ -91,6 +91,8 @@ runs:
   steps:
     - name: Checkout
       uses: actions/checkout@v2
+      with:
+       clean: false # leave cache and docker config in place
     - name: Create values-override.yaml
       shell: bash
       if: ${{ inputs.values-override != '' }}
