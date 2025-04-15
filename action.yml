@@ -128,6 +128,8 @@ runs:
       run: |
         echo "###### WEAVIATE LOGS ######"
         kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate || true
+        echo "###### WEAVIATE NODES ######"
+        kubectl get nodes -n weaviate -o wide || true
         echo "###### WEAVIATE PODS ######"
         kubectl get pods -n weaviate -o wide || true
         echo "###### WEAVIATE EVENTS ######"
