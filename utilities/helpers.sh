@@ -40,7 +40,7 @@ Environment Variables:
     WEAVIATE_VERSION    Specific Weaviate version to deploy (required)
     EXPOSE_PODS         Expose the Weaviate pods on the host, for http (starts in 8081), grpc (starts in 50052), metrics (starts in 2113) and profiler (starts in 6061) ports, (default: true)
     DEBUG                Run the script in debug mode (set -x) (default: false)
-    DOCKER_CONFIG       Docker configuration file for the Kind cluster. Use after 'docker login' with your config file to allow KInD to access image pull secrets and avoid dockerhub rate limits. Often, this config can be found at ~/.docker/config.json.
+    DOCKER_CONFIG       Docker configuration file for the Kind cluster. Use after 'docker login' with your config file to allow KInD to access image pull secrets and avoid dockerhub rate limits. Often, this config can be found at /home/<user>/.docker/config.json. The path must NOT include ~.
 
   Network Configuration:
     WEAVIATE_PORT       HTTP API port (default: 8080)
