@@ -136,7 +136,9 @@ function upgrade() {
 
 function setup() {
     echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
-
+    mount_config = $([ "${DOCKER_CONFIG}" != "" ] && echo "  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${DOCKER_CONFIG}")
     # Create Kind config file
     cat <<EOF > /tmp/kind-config.yaml
 kind: Cluster
@@ -144,27 +146,15 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: weaviate-k8s
 nodes:
 - role: control-plane
-$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
-$([ "${DOCKER_CONFIG}" != "" ] && echo "  extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${DOCKER_CONFIG}")
+${mount_config}
+$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker
+${mount_config}"; done)
 EOF
-
+    conf = $(cat /tmp/kind-config.yaml)
+    echo_green "setup # Mounting Docker config file if provided:\n $conf"
     echo_green "setup # Create local k8s cluster"
     # Create k8s Kind Cluster
     kind create cluster --wait 120s --name weaviate-k8s --config /tmp/kind-config.yaml
-
-    # Create docker config if credentials are passed
-    if [ "${DOCKER_CONFIG}" == "" ]; then
-    cat <<EOF > /tmp/kind-docker-config.yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: weaviate-k8s
-nodes:
-- role: control-plane
-$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
-EOF
-    fi
 
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
