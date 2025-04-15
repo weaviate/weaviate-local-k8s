@@ -45,6 +45,7 @@ OIDC=${OIDC:-"false"}
 DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
+DOCKER_CONFIG=${DOCKER_CONFIG:-""}
 
 if [[ $DEBUG == "true" ]]; then
     set -x
@@ -144,11 +145,26 @@ name: weaviate-k8s
 nodes:
 - role: control-plane
 $([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
+$([ "${DOCKER_CONFIG}" != "" ] && echo "  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${DOCKER_CONFIG}")
 EOF
 
     echo_green "setup # Create local k8s cluster"
     # Create k8s Kind Cluster
     kind create cluster --wait 120s --name weaviate-k8s --config /tmp/kind-config.yaml
+
+    # Create docker config if credentials are passed
+    if [ "${DOCKER_CONFIG}" == "" ]; then
+    cat <<EOF > /tmp/kind-docker-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: weaviate-k8s
+nodes:
+- role: control-plane
+$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
+EOF
+    fi
 
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
