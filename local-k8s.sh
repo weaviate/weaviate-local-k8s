@@ -45,6 +45,7 @@ OIDC=${OIDC:-"false"}
 DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
+DOCKER_CONFIG=${DOCKER_CONFIG:-""}
 
 if [[ $DEBUG == "true" ]]; then
     set -x
@@ -135,7 +136,12 @@ function upgrade() {
 
 function setup() {
     echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
-
+    mount_config=""
+    if [ "${DOCKER_CONFIG}" != "" ]; then
+        mount_config="  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${DOCKER_CONFIG}"
+    fi
     # Create Kind config file
     cat <<EOF > /tmp/kind-config.yaml
 kind: Cluster
@@ -143,9 +149,12 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: weaviate-k8s
 nodes:
 - role: control-plane
-$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker"; done)
+${mount_config}
+$([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker
+${mount_config}"; done)
 EOF
-
+    conf=$(cat /tmp/kind-config.yaml)
+    echo_green "setup # Mounting Docker config file if provided:\n $conf"
     echo_green "setup # Create local k8s cluster"
     # Create k8s Kind Cluster
     kind create cluster --wait 120s --name weaviate-k8s --config /tmp/kind-config.yaml

@@ -82,11 +82,17 @@ inputs:
     description: 'Run the action in debug mode (set -x)'
     required: false
     default: 'false'
+  docker-config:
+   description: 'File location containing the docker configuration that contains auth to be mounted in KInD.'
+   required: false
+   default: ''
 runs:
   using: 'composite'
   steps:
     - name: Checkout
       uses: actions/checkout@v2
+      with:
+       clean: false # leave cache and docker config in place
     - name: Create values-override.yaml
       shell: bash
       if: ${{ inputs.values-override != '' }}
@@ -114,6 +120,7 @@ runs:
         DYNAMIC_USERS: ${{ inputs.dynamic-users }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
+        DOCKER_CONFIG: ${{ inputs.docker-config }}
       run: ${{ github.action_path }}/local-k8s.sh $OPERATION
     - name: Retrieve weaviate logs
       shell: bash
@@ -121,6 +128,8 @@ runs:
       run: |
         echo "###### WEAVIATE LOGS ######"
         kubectl logs -n weaviate -l app.kubernetes.io/name=weaviate || true
+        echo "###### WEAVIATE NODES ######"
+        kubectl get nodes -n weaviate -o wide || true
         echo "###### WEAVIATE PODS ######"
         kubectl get pods -n weaviate -o wide || true
         echo "###### WEAVIATE EVENTS ######"
