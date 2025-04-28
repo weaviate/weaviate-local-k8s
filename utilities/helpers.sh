@@ -444,7 +444,10 @@ function generate_helm_values() {
     fi
 
     if [[ $OBSERVABILITY == "true" ]]; then
-        helm_values="${helm_values} --set serviceMonitor.enabled=true"
+        # Add extra metrics monitoring options
+        helm_values="${helm_values} --set serviceMonitor.enabled=true \
+                            --set env.PROMETHEUS_MONITORING_GROUP=true \
+                            --set env.PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY=true"
     fi
 
     if [[ $DYNAMIC_USERS == "true" ]]; then
