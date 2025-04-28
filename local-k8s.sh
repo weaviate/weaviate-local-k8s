@@ -114,7 +114,8 @@ function upgrade() {
         $VALUES_OVERRIDE
 
     # Wait for Weaviate to be up
-    TIMEOUT=$(get_timeout)
+    # during the upgrade we don't need to wait for other modules to be ready, they should be already running
+    TIMEOUT=300s
     echo_green "upgrade # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
     echo_green "upgrade # Waiting for rollout upgrade to be over"
