@@ -254,7 +254,7 @@ function wait_for_all_healthy_nodes() {
             if [ "$(is_node_healthy "$node")" == "true" ]; then
                 healthy_nodes=$((healthy_nodes+1))
             else
-                echo_yellow "Weaviate node $node is not healthy"
+                echo_yellow "Weaviate node $node is not healthy (check that no other process is using port $WEAVIATE_PORT)"
             fi
         done
 
