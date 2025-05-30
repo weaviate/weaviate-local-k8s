@@ -137,6 +137,7 @@ function upgrade() {
 
 function setup() {
     echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
+    verify_ports_available $REPLICAS
     mount_config=""
     if [ "${DOCKER_CONFIG}" != "" ]; then
         mount_config="  extraMounts:

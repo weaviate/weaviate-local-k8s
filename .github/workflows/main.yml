@@ -823,3 +823,43 @@ jobs:
                 echo "Error: Failed to create a user"
                 exit 1
             fi
+    run-weaviate-local-k8s-port-in-use:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Verify port availability check fails when port 8080 is in use
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Start a process to occupy port 8080
+          run: |
+            # Start a simple HTTP server on port 8080
+            python3 -m http.server 8080 &
+            SERVER_PID=$!
+            # Wait a moment to ensure the server is running
+            sleep 2
+            # Verify the port is in use
+            if ! lsof -i :8080 | grep -q LISTEN; then
+              echo "Failed to start server on port 8080"
+              exit 1
+            fi
+            # Store the PID for cleanup
+            echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+        - name: Attempt to deploy weaviate-local-k8s (should fail)
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: 'false'
+          continue-on-error: true
+        - name: Verify deployment failed due to port in use
+          if: steps.invoke-local-k8s.outcome == 'success'
+          run: |
+            echo "The deployment should have failed due to port 8080 being in use, but it succeeded"
+            exit 1
+
