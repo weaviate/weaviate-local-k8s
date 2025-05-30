@@ -244,6 +244,58 @@ function is_node_healthy() {
     fi
 }
 
+function verify_ports_available() {
+    replicas=$1
+    echo_green "Verifying ports are available for $replicas Weaviate nodes"
+
+    # Check if default ports are available
+    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_PORT"; then
+        echo_red "Port $WEAVIATE_PORT is already in use by another process."
+        exit 1
+    fi
+    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_GRPC_PORT"; then
+        echo_red "Port $WEAVIATE_GRPC_PORT is already in use by another process."
+        exit 1
+    fi
+    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_METRICS"; then
+        echo_red "Port $WEAVIATE_METRICS is already in use by another process."
+        exit 1
+    fi
+    if lsof -i -n -P | grep LISTEN | grep -q ":$PROFILER_PORT"; then
+        echo_red "Port $PROFILER_PORT is already in use by another process."
+        exit 1
+    fi
+
+    if [[ "$EXPOSE_PODS" == "true" ]]; then
+        # Check if ports are available for each replica
+        for i in $(seq 0 $((replicas-1))); do
+            # Check Weaviate exposed port
+            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_PORT+i+1))"; then
+                echo_red "Port $((WEAVIATE_PORT+i+1)) is already in use"
+                exit 1
+            fi
+            # Check Weaviate grpc port
+            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_GRPC_PORT+i+1))"; then
+                echo_red "Port $((WEAVIATE_GRPC_PORT+i+1)) is already in use"
+                exit 1
+            fi
+            # Check metrics port
+            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_METRICS+i+1))"; then
+                echo_red "Port $((WEAVIATE_METRICS+i+1)) is already in use"
+                exit 1
+            fi
+
+            # Check profiler port
+            if lsof -i -n -P | grep LISTEN | grep -q ":$((PROFILER_PORT+i+1))"; then
+                echo_red "Port $((PROFILER_PORT+i+1)) is already in use"
+                exit 1
+            fi
+        done
+    fi
+
+    echo_green "All required ports are available"
+}
+
 function wait_for_all_healthy_nodes() {
     replicas=$1
     echo_green "Wait for all Weaviate $replicas nodes in cluster"
@@ -254,7 +306,7 @@ function wait_for_all_healthy_nodes() {
             if [ "$(is_node_healthy "$node")" == "true" ]; then
                 healthy_nodes=$((healthy_nodes+1))
             else
-                echo_yellow "Weaviate node $node is not healthy (check that no other process is using port $WEAVIATE_PORT)"
+                echo_yellow "Weaviate node $node is not healthy"
             fi
         done
 
