@@ -91,20 +91,26 @@ EOF
 function wait_for_minio() {
     kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
     echo_green "Minio is ready"
-    if [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $ENABLE_BACKUP == "true" || $USAGE_S3 == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         # Check if the minio-mc pod already exists and delete it if necessary
         if kubectl get pod minio-mc -n weaviate &>/dev/null; then
             echo_yellow "Pod minio-mc already exists, skipping creation..."
         else
-            echo_green "Creating Minio bucket"
+            echo_green "Creating Minio buckets"
             kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
             /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
             if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
                 /usr/bin/mc mb minio/weaviate-backups;
                 /usr/bin/mc policy set public minio/weaviate-backups;
             else
-                echo 'Bucket minio/weaviate-backups already exists.';
+                echo 'Bucket minio/weaviate-usage already exists.';
+            fi;
+            if ! /usr/bin/mc ls minio/weaviate-usage > /dev/null 2>&1; then
+                /usr/bin/mc mb minio/weaviate-usage;
+                /usr/bin/mc policy set public minio/weaviate-usage;
+            else
+                echo 'Bucket minio/weaviate-usage already exists.';
             fi;"
             # Wait for the pod/minio-mc to complete
             timeout=100  # Timeout in seconds
@@ -130,9 +136,9 @@ function shutdown_minio() {
 }
 
 function wait_for_other_services() {
-
+    echo "Waiting for other services to be ready..."
     # Wait for minio service to be ready if S3 offload or backup is enabled
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         wait_for_minio
     fi
 
@@ -486,6 +492,10 @@ function generate_helm_values() {
         helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
+    if [[ $ENABLE_BACKUP == "true" ]]; then
+        helm_values="${helm_values} --set env.USAGE_S3_BUCKET=weaviate-usage"
+    fi
+
     if [[ $S3_OFFLOAD == "true" ]]; then
         secrets="--set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
         if [[ $ENABLE_BACKUP == "true" ]]; then
@@ -700,7 +710,7 @@ function use_local_images() {
             esac
         done
     fi
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
        WEAVIATE_IMAGES+=(
             "minio/minio:latest"
             "minio/mc:latest"

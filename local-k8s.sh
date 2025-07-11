@@ -30,6 +30,7 @@ WEAVIATE_IMAGE_PREFIX=${WEAVIATE_IMAGE_PREFIX:-semitechnologies}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
+USAGE_S3=${USAGE_S3:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
@@ -51,6 +52,12 @@ if [[ $DEBUG == "true" ]]; then
     set -x
 fi
 
+if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]]; then
+    need_minio="true"
+else
+    need_minio="false"
+fi
+
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
     # and calculate the timeout value based on the number of replicas
@@ -58,7 +65,7 @@ function get_timeout() {
     if [ -n "$MODULES" ]; then
         modules_timeout=$((modules_timeout + 1200))
     fi
-    if [ "$ENABLE_BACKUP" == "true" ] || [ "$S3_OFFLOAD" == "true" ]; then
+    if [ "$need_minio" == "true" ]; then
         modules_timeout=$((modules_timeout + 100))
     fi
     if [ "$OBSERVABILITY" == "true" ]; then
@@ -81,7 +88,7 @@ function upgrade() {
         VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         # if the minio pod is not running, start it
         kubectl get pod -n weaviate minio &> /dev/null || startup_minio
     fi
@@ -171,7 +178,7 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         startup_minio
     fi
 
@@ -268,7 +275,7 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         shutdown_minio
     fi
 
