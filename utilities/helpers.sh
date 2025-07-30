@@ -53,6 +53,7 @@ Environment Variables:
     AUTH_CONFIG        Path to custom authentication and authorization configuration file (optional)
     ENABLE_BACKUP      Enable backup functionality with MinIO (default: false)
     S3_OFFLOAD         Enable S3 data offloading with MinIO (default: false)
+    USAGE_S3           Enable collecting usage metrics in MinIO (default: false)
 
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
@@ -130,6 +131,25 @@ function wait_for_minio() {
     fi
 }
 
+function wait_for_runtime_overrides() {
+    echo "Waiting for runtime overrides to be applied..."
+    pods=$(kubectl get pods -o=name -n weaviate -l app=weaviate | awk -F'/' '{print $2}')
+    echo "Copying Runtime Override config to pods..."
+    for pod in ${pods}; do
+        echo "Editing runtime override for ${pod}"
+        kubectl exec -n weaviate -it "${pod}" -- mkdir -p "${RUNTIME_OVERRIDES_PATH}"
+        kubectl cp ${RUNTIME_OVERRIDES_SOURCE} "${pod}:${RUNTIME_OVERRIDES_PATH}" -n weaviate
+    done
+    # set after so it doesn't fail before we have a config file
+    kubectl set env -n weaviate sts/weaviate \
+        AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 \
+        RUNTIME_OVERRIDES_LOAD_INTERVAL=10s \
+        RUNTIME_OVERRIDES_PATH="${RUNTIME_OVERRIDES_PATH}/$(basename "$RUNTIME_OVERRIDES_SOURCE")" \
+        RUNTIME_OVERRIDES_ENABLED=true
+    echo "Waiting for pods to be ready after runtime overrides were enabled..."
+    kubectl rollout status sts/weaviate -n weaviate --watch --timeout=600s
+}
+
 function shutdown_minio() {
     echo_green "Shutting down Minio"
     kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
@@ -150,6 +170,10 @@ function wait_for_other_services() {
     # Wait for monitoring to be ready if observability is enabled
     if [[ $OBSERVABILITY == "true" ]]; then
         wait_for_monitoring
+    fi
+
+    if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
+       wait_for_runtime_overrides
     fi
 }
 
@@ -492,8 +516,8 @@ function generate_helm_values() {
         helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
-    if [[ $ENABLE_BACKUP == "true" ]]; then
-        helm_values="${helm_values} --set env.USAGE_S3_BUCKET=weaviate-usage"
+    if [[ $USAGE_S3 == "true" ]]; then
+        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
@@ -587,7 +611,7 @@ function setup_helm () {
         if [ -d "$WEAVIATE_HELM_DIR" ]; then
             rm -rf "$WEAVIATE_HELM_DIR"
         fi
-        # Download weaviate-helm repository master branch
+        # Download weaviate-helm repository with branch
         git clone -b $HELM_BRANCH https://github.com/weaviate/weaviate-helm.git $WEAVIATE_HELM_DIR
         # Package Weaviate Helm chart
         helm package -d ${WEAVIATE_HELM_DIR} ${WEAVIATE_HELM_DIR}/weaviate

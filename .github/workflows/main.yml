@@ -79,7 +79,7 @@ jobs:
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
-        HELM_BRANCH: 'master'
+        HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-contextionary'
         ENABLE_BACKUP: 'true'
