@@ -47,6 +47,9 @@ DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
 DOCKER_CONFIG=${DOCKER_CONFIG:-""}
+ENABLE_RUNTIME_OVERRIDES=${ENABLE_RUNTIME_OVERRIDES:-"false"}
+RUNTIME_OVERRIDES_PATH=${RUNTIME_OVERRIDES_PATH:-"/var/lib/weaviate/config/"}
+RUNTIME_OVERRIDES_SOURCE=${RUNTIME_OVERRIDES_SOURCE:-"$CURRENT_DIR/config/runtime_overrides.yaml"}
 
 if [[ $DEBUG == "true" ]]; then
     set -x
@@ -180,6 +183,11 @@ EOF
 
     if [[ $need_minio == "true" ]]; then
         startup_minio
+    fi
+
+    if [[ $USAGE_S3 == "true" ]] && [[ $ENABLE_RUNTIME_OVERRIDES != "true" ]]; then
+        echo_red "Must set ENABLE_RUNTIME_OVERRIDES if USAGE_S3 is enabled"
+        exit 1
     fi
 
     if [[ $OIDC == "true" ]]; then
