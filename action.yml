@@ -121,7 +121,35 @@ runs:
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
-      run: ${{ github.action_path }}/local-k8s.sh $OPERATION
+      run: |
+        # Retry configuration
+        MAX_RETRIES=2
+        RETRY_DELAY=30
+        
+        for attempt in $(seq 1 $MAX_RETRIES); do
+          echo "Attempt $attempt of $MAX_RETRIES"
+          
+          if ${{ github.action_path }}/local-k8s.sh $OPERATION; then
+            echo "Deployment successful on attempt $attempt"
+            exit 0
+          else
+            echo "Deployment failed on attempt $attempt"
+            
+            if [ $attempt -lt $MAX_RETRIES ]; then
+              echo "Waiting $RETRY_DELAY seconds before retry..."
+              sleep $RETRY_DELAY
+              
+              # Clean up before retry for setup operations
+              if [ "$OPERATION" = "setup" ]; then
+                echo "Cleaning up before retry..."
+                ${{ github.action_path }}/local-k8s.sh clean || true
+              fi
+            else
+              echo "All $MAX_RETRIES attempts failed"
+              exit 1
+            fi
+          fi
+        done
     - name: Retrieve weaviate logs
       shell: bash
       if: failure()
