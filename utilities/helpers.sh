@@ -131,25 +131,6 @@ function wait_for_minio() {
     fi
 }
 
-function wait_for_runtime_overrides() {
-    echo "Waiting for runtime overrides to be applied..."
-    pods=$(kubectl get pods -o=name -n weaviate -l app=weaviate | awk -F'/' '{print $2}')
-    echo "Copying Runtime Override config to pods..."
-    for pod in ${pods}; do
-        echo "Editing runtime override for ${pod}"
-        kubectl exec -n weaviate -it "${pod}" -- mkdir -p "${RUNTIME_OVERRIDES_PATH}"
-        kubectl cp ${RUNTIME_OVERRIDES_SOURCE} "${pod}:${RUNTIME_OVERRIDES_PATH}" -n weaviate
-    done
-    # set after so it doesn't fail before we have a config file
-    kubectl set env -n weaviate sts/weaviate \
-        AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 \
-        RUNTIME_OVERRIDES_LOAD_INTERVAL=10s \
-        RUNTIME_OVERRIDES_PATH="${RUNTIME_OVERRIDES_PATH}/$(basename "$RUNTIME_OVERRIDES_SOURCE")" \
-        RUNTIME_OVERRIDES_ENABLED=true
-    echo "Waiting for pods to be ready after runtime overrides were enabled..."
-    kubectl rollout status sts/weaviate -n weaviate --watch --timeout=600s
-}
-
 function shutdown_minio() {
     echo_green "Shutting down Minio"
     kubectl delete -f  "$(dirname "$0")/manifests/minio-dev.yaml" || true
@@ -170,10 +151,6 @@ function wait_for_other_services() {
     # Wait for monitoring to be ready if observability is enabled
     if [[ $OBSERVABILITY == "true" ]]; then
         wait_for_monitoring
-    fi
-
-    if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
-       wait_for_runtime_overrides
     fi
 }
 
@@ -517,7 +494,7 @@ function generate_helm_values() {
     fi
 
     if [[ $USAGE_S3 == "true" ]]; then
-        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
+        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
@@ -527,6 +504,11 @@ function generate_helm_values() {
             secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
+        helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
+    fi
+
+    if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
+       helm_values="${helm_values} --set runtime_overrides.enabled=true --set runtime_overrides.load_interval=30s --set runtime_overrides.path=${RUNTIME_OVERRIDES_PATH}"
     fi
 
     if [[ $OBSERVABILITY == "true" ]]; then

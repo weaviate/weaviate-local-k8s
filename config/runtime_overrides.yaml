@@ -1,3 +1,0 @@
-usage_scrape_interval: 10s
-usage_s3_bucket: weaviate-usage
-usage_s3_prefix: billing
