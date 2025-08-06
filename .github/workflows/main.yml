@@ -84,6 +84,7 @@ jobs:
         MODULES: 'text2vec-contextionary'
         ENABLE_BACKUP: 'true'
         USAGE_S3: 'true'
+        ENABLE_RUNTIME_OVERRIDES: 'true'
         RBAC: 'true'
         OIDC: 'true'
         DYNAMIC_USERS: 'true'

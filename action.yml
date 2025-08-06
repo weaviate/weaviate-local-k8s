@@ -86,6 +86,10 @@ inputs:
     description: 'Run the action in debug mode (set -x)'
     required: false
     default: 'false'
+  enable-runtime-overrides:
+   description: 'Whether or no runtime override settings should be enabled in Weaviate.'
+   required: false
+   default: 'false'
   docker-config:
    description: 'File location containing the docker configuration that contains auth to be mounted in KInD.'
    required: false
@@ -125,6 +129,7 @@ runs:
         DYNAMIC_USERS: ${{ inputs.dynamic-users }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
+        ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
       run: |
         # Retry configuration
