@@ -50,6 +50,10 @@ inputs:
     description: 'Configures S3 tenant offloading'
     required: false
     default: 'false'
+  usage-s3:
+    description: 'Configures Usage metrics on s3/minio'
+    required: false
+    default: 'false'
   delete-sts:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
@@ -112,6 +116,7 @@ runs:
         HELM_BRANCH: ${{ inputs.helm-branch }}
         ENABLE_BACKUP: ${{ inputs.enable-backup }}
         S3_OFFLOAD: ${{ inputs.s3-offload }}
+        USAGE_S3 : ${{ inputs.usage-s3 }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}

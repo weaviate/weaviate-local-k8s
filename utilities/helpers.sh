@@ -411,7 +411,9 @@ function port_forward_to_weaviate() {
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
-
+    if [[ $USAGE_S3 == "true" ]]; then
+       /tmp/kubectl-relay svc/minio -n weaviate ${MINIO_PORT}:9000 &> /tmp/minio_frwd.log &
+    fi
 }
 
 function port_forward_weaviate_pods() {

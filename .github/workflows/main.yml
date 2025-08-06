@@ -83,6 +83,7 @@ jobs:
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-contextionary'
         ENABLE_BACKUP: 'true'
+        USAGE_S3: 'true'
         RBAC: 'true'
         OIDC: 'true'
         DYNAMIC_USERS: 'true'
@@ -142,6 +143,7 @@ jobs:
             helm-branch: ${{ env.HELM_BRANCH }}
             values-override: ${{ env.VALUES_OVERRIDE }}
             s3-offload: ${{ env.S3_OFFLOAD }}
+            usage-s3: ${{ env.USAGE_S3 }}
             modules: ${{ env.MODULES }}
             enable-backup: ${{ env.ENABLE_BACKUP }}
             values-inline: ${{ env.VALUES_INLINE }}
