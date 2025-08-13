@@ -48,12 +48,13 @@ Environment Variables:
     WEAVIATE_METRICS    Metrics port (default: 2112)
 
   Feature Flags:
-    OBSERVABILITY       Enable Prometheus and Grafana monitoring (default: true)
-    RBAC               Enable Role-Based Access Control (default: false)
-    AUTH_CONFIG        Path to custom authentication and authorization configuration file (optional)
-    ENABLE_BACKUP      Enable backup functionality with MinIO (default: false)
-    S3_OFFLOAD         Enable S3 data offloading with MinIO (default: false)
-
+    OBSERVABILITY               Enable Prometheus and Grafana monitoring (default: true)
+    RBAC                        Enable Role-Based Access Control (default: false)
+    AUTH_CONFIG                 Path to custom authentication and authorization configuration file (optional)
+    ENABLE_BACKUP               Enable backup functionality with MinIO (default: false)
+    S3_OFFLOAD                  Enable S3 data offloading with MinIO (default: false)
+    USAGE_S3                    Enable collecting usage metrics in MinIO (default: false)
+    ENABLE_RUNTIME_OVERRIDES    Enable weaviate configuration via runtime overrides(default: false)
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
                       Available modules: https://weaviate.io/developers/weaviate/model-providers
@@ -91,20 +92,26 @@ EOF
 function wait_for_minio() {
     kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
     echo_green "Minio is ready"
-    if [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $ENABLE_BACKUP == "true" || $USAGE_S3 == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         # Check if the minio-mc pod already exists and delete it if necessary
         if kubectl get pod minio-mc -n weaviate &>/dev/null; then
             echo_yellow "Pod minio-mc already exists, skipping creation..."
         else
-            echo_green "Creating Minio bucket"
+            echo_green "Creating Minio buckets"
             kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
             /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
             if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
                 /usr/bin/mc mb minio/weaviate-backups;
                 /usr/bin/mc policy set public minio/weaviate-backups;
             else
-                echo 'Bucket minio/weaviate-backups already exists.';
+                echo 'Bucket minio/weaviate-usage already exists.';
+            fi;
+            if ! /usr/bin/mc ls minio/weaviate-usage > /dev/null 2>&1; then
+                /usr/bin/mc mb minio/weaviate-usage;
+                /usr/bin/mc policy set public minio/weaviate-usage;
+            else
+                echo 'Bucket minio/weaviate-usage already exists.';
             fi;"
             # Wait for the pod/minio-mc to complete
             timeout=100  # Timeout in seconds
@@ -130,9 +137,9 @@ function shutdown_minio() {
 }
 
 function wait_for_other_services() {
-
+    echo "Waiting for other services to be ready..."
     # Wait for minio service to be ready if S3 offload or backup is enabled
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         wait_for_minio
     fi
 
@@ -404,7 +411,9 @@ function port_forward_to_weaviate() {
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
-
+    if [[ $USAGE_S3 == "true" ]]; then
+       /tmp/kubectl-relay svc/minio -n weaviate ${MINIO_PORT}:9000 &> /tmp/minio_frwd.log &
+    fi
 }
 
 function port_forward_weaviate_pods() {
@@ -486,6 +495,11 @@ function generate_helm_values() {
         helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false --set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
     fi
 
+    if [[ $USAGE_S3 == "true" ]]; then
+        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
+        helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
+    fi
+
     if [[ $S3_OFFLOAD == "true" ]]; then
         secrets="--set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
         if [[ $ENABLE_BACKUP == "true" ]]; then
@@ -493,6 +507,10 @@ function generate_helm_values() {
             secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
+    fi
+
+    if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
+       helm_values="${helm_values} --set runtime_overrides.enabled=true --set runtime_overrides.load_interval=30s --set runtime_overrides.path=${RUNTIME_OVERRIDES_PATH}"
     fi
 
     if [[ $OBSERVABILITY == "true" ]]; then
@@ -577,7 +595,7 @@ function setup_helm () {
         if [ -d "$WEAVIATE_HELM_DIR" ]; then
             rm -rf "$WEAVIATE_HELM_DIR"
         fi
-        # Download weaviate-helm repository master branch
+        # Download weaviate-helm repository with branch
         git clone -b $HELM_BRANCH https://github.com/weaviate/weaviate-helm.git $WEAVIATE_HELM_DIR
         # Package Weaviate Helm chart
         helm package -d ${WEAVIATE_HELM_DIR} ${WEAVIATE_HELM_DIR}/weaviate
@@ -700,7 +718,7 @@ function use_local_images() {
             esac
         done
     fi
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
        WEAVIATE_IMAGES+=(
             "minio/minio:latest"
             "minio/mc:latest"
