@@ -48,13 +48,13 @@ Environment Variables:
     WEAVIATE_METRICS    Metrics port (default: 2112)
 
   Feature Flags:
-    OBSERVABILITY       Enable Prometheus and Grafana monitoring (default: true)
-    RBAC               Enable Role-Based Access Control (default: false)
-    AUTH_CONFIG        Path to custom authentication and authorization configuration file (optional)
-    ENABLE_BACKUP      Enable backup functionality with MinIO (default: false)
-    S3_OFFLOAD         Enable S3 data offloading with MinIO (default: false)
-    USAGE_S3           Enable collecting usage metrics in MinIO (default: false)
-
+    OBSERVABILITY               Enable Prometheus and Grafana monitoring (default: true)
+    RBAC                        Enable Role-Based Access Control (default: false)
+    AUTH_CONFIG                 Path to custom authentication and authorization configuration file (optional)
+    ENABLE_BACKUP               Enable backup functionality with MinIO (default: false)
+    S3_OFFLOAD                  Enable S3 data offloading with MinIO (default: false)
+    USAGE_S3                    Enable collecting usage metrics in MinIO (default: false)
+    ENABLE_RUNTIME_OVERRIDES    Enable weaviate configuration via runtime overrides(default: false)
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
                       Available modules: https://weaviate.io/developers/weaviate/model-providers
@@ -497,6 +497,7 @@ function generate_helm_values() {
 
     if [[ $USAGE_S3 == "true" ]]; then
         helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
+        helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
@@ -506,7 +507,6 @@ function generate_helm_values() {
             secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
-        helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
     fi
 
     if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
