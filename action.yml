@@ -50,6 +50,10 @@ inputs:
     description: 'Configures S3 tenant offloading'
     required: false
     default: 'false'
+  usage-s3:
+    description: 'Configures Usage metrics on s3/minio'
+    required: false
+    default: 'false'
   delete-sts:
     description: 'Configure either Weaviate Statefulset should be removed'
     required: false
@@ -82,6 +86,10 @@ inputs:
     description: 'Run the action in debug mode (set -x)'
     required: false
     default: 'false'
+  enable-runtime-overrides:
+   description: 'Whether or no runtime override settings should be enabled in Weaviate.'
+   required: false
+   default: 'false'
   docker-config:
    description: 'File location containing the docker configuration that contains auth to be mounted in KInD.'
    required: false
@@ -112,6 +120,7 @@ runs:
         HELM_BRANCH: ${{ inputs.helm-branch }}
         ENABLE_BACKUP: ${{ inputs.enable-backup }}
         S3_OFFLOAD: ${{ inputs.s3-offload }}
+        USAGE_S3 : ${{ inputs.usage-s3 }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}
@@ -120,6 +129,7 @@ runs:
         DYNAMIC_USERS: ${{ inputs.dynamic-users }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
+        ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
       run: |
         # Retry configuration

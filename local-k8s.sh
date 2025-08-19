@@ -25,11 +25,13 @@ WEAVIATE_PORT=${WEAVIATE_PORT:-8080}
 WEAVIATE_GRPC_PORT=${WEAVIATE_GRPC_PORT:-50051}
 WEAVIATE_METRICS=${WEAVIATE_METRICS:-2112}
 PROFILER_PORT=${PROFILER_PORT:-6060}
+MINIO_PORT=${MINIO_PORT:-9000}
 EXPOSE_PODS=${EXPOSE_PODS:-"true"}
 WEAVIATE_IMAGE_PREFIX=${WEAVIATE_IMAGE_PREFIX:-semitechnologies}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
+USAGE_S3=${USAGE_S3:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
 VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
@@ -46,9 +48,17 @@ DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
 DOCKER_CONFIG=${DOCKER_CONFIG:-""}
+ENABLE_RUNTIME_OVERRIDES=${ENABLE_RUNTIME_OVERRIDES:-"false"}
+RUNTIME_OVERRIDES_PATH=${RUNTIME_OVERRIDES_PATH:-"/config/overrides.yaml"}
 
 if [[ $DEBUG == "true" ]]; then
     set -x
+fi
+
+if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]]; then
+    need_minio="true"
+else
+    need_minio="false"
 fi
 
 function get_timeout() {
@@ -58,7 +68,7 @@ function get_timeout() {
     if [ -n "$MODULES" ]; then
         modules_timeout=$((modules_timeout + 1200))
     fi
-    if [ "$ENABLE_BACKUP" == "true" ] || [ "$S3_OFFLOAD" == "true" ]; then
+    if [ "$need_minio" == "true" ]; then
         modules_timeout=$((modules_timeout + 100))
     fi
     if [ "$OBSERVABILITY" == "true" ]; then
@@ -81,7 +91,7 @@ function upgrade() {
         VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         # if the minio pod is not running, start it
         kubectl get pod -n weaviate minio &> /dev/null || startup_minio
     fi
@@ -171,8 +181,13 @@ EOF
     # Create namespace
     kubectl create namespace weaviate
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         startup_minio
+    fi
+
+    if [[ $USAGE_S3 == "true" ]] && [[ $ENABLE_RUNTIME_OVERRIDES != "true" ]]; then
+        echo_red "Must set ENABLE_RUNTIME_OVERRIDES if USAGE_S3 is enabled"
+        exit 1
     fi
 
     if [[ $OIDC == "true" ]]; then
@@ -268,7 +283,7 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
-    if [[ $S3_OFFLOAD == "true" ]] || [[ $ENABLE_BACKUP == "true" ]]; then
+    if [[ $need_minio == "true" ]]; then
         shutdown_minio
     fi
 
