@@ -11,7 +11,10 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **replicas**: The number of replicas for Weaviate. (Optional, default: '3')
 - **weaviate-version**: The version of Weaviate to deploy. (Optional, default: 'latest')
 - **helm-branch**: The branch of the Helm chart repository to use. If not specified, then the latest published Helm chart for weaviate/weaviate will used. (Optional, default: '')
-- **modules**: The vectorizer/modules that will be started up along with Weaviate. Consists on a comma-separated list of modules. The list of supported modules can be found [here](https://weaviate.io/developers/weaviate/modules)
+- **modules**: Comma-separated list of Weaviate modules to enable. See the [official modules documentation](https://weaviate.io/developers/weaviate/modules) for available options.
+
+  **Custom modules supported:**
+  - `text2vec-transformers-model2vec`: Uses a static model2vec image to deploy a transformers model. This option provides faster performance but lower embedding quality compared to standard transformers modules.
 - **delete-sts**: Allows deleting the Weaviate statefulset before perfoming an upgrade operation. Required for the upgrade from non-RAFT (pre-1.25) to RAFT (1.25)
 - **enable-backup**: When set to true it configures Weaviate to support S3 backups using MinIO. Refer to the [backup and restore](https://weaviate.io/developers/weaviate/configuration/backups#) documentation for more information.
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
