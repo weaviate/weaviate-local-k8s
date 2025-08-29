@@ -81,7 +81,7 @@ jobs:
         WEAVIATE_GRPC_PORT: '50052'
         HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
-        MODULES: 'text2vec-contextionary'
+        MODULES: 'text2vec-model2vec'
         ENABLE_BACKUP: 'true'
         USAGE_S3: 'true'
         ENABLE_RUNTIME_OVERRIDES: 'true'
@@ -272,12 +272,12 @@ jobs:
     run-weaviate-local-k8s-with-module:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
-      name: Invoke weaviate-local-k8s action with text2vec-contextionary module
+      name: Invoke weaviate-local-k8s action with text2vec-contextionary and model2vecmodule
       env:
         WORKERS: '2'
         REPLICAS: '3'
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
-        MODULES: 'text2vec-contextionary'
+        MODULES: 'text2vec-contextionary,text2vec-model2vec'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2

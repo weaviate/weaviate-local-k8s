@@ -57,7 +57,10 @@ Environment Variables:
     ENABLE_RUNTIME_OVERRIDES    Enable weaviate configuration via runtime overrides(default: false)
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
-                      Available modules: https://weaviate.io/developers/weaviate/model-providers
+                       Available modules: https://weaviate.io/developers/weaviate/model-providers
+                       Custom modules:
+                         * text2vec-transformers-model2vec: Configures a transformers module which uses
+                           a model2vec image to scrifice quality for speed.
     HELM_BRANCH        Specific branch of weaviate-helm to use (default: "")
     VALUES_INLINE      Additional Helm values to pass inline (default: "")
     DELETE_STS         Delete StatefulSet during upgrade (default: false)
@@ -483,6 +486,12 @@ function generate_helm_values() {
         # Splitting $MODULES by comma and iterating over each module
         IFS=',' read -ra MODULES_ARRAY <<< "$MODULES"
         for MODULE in "${MODULES_ARRAY[@]}"; do
+            if [[ $MODULE == "text2vec-transformers-model2vec" ]]; then
+                helm_values="${helm_values} --set modules.text2vec-transformers.enabled=\"true\""
+                helm_values="${helm_values} --set modules.text2vec-transformers.repo=semitechnologies/model2vec-inference"
+                helm_values="${helm_values} --set modules.text2vec-transformers.tag=minishlab-potion-multilingual-128M"
+                continue
+            fi
             # Add module string to helm_values
             helm_values="${helm_values} --set modules.${MODULE}.enabled=\"true\""
             if [[ $MODULE == "text2vec-transformers" ]]; then
@@ -709,6 +718,16 @@ function use_local_images() {
                 "text2vec-contextionary")
                     WEAVIATE_IMAGES+=(
                         "semitechnologies/contextionary:en0.16.0-v1.2.1"
+                    )
+                    ;;
+                "text2vec-model2vec")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M"
+                    )
+                    ;;
+                "text2vec-transformers-model2vec")
+                    WEAVIATE_IMAGES+=(
+                        "semitechnologies/model2vec-inference:minishlab-potion-multilingual-128M"
                     )
                     ;;
                 # Add more cases as needed for other modules
