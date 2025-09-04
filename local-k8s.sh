@@ -55,11 +55,18 @@ if [[ $DEBUG == "true" ]]; then
     set -x
 fi
 
-if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]]; then
-    need_minio="true"
-else
-    need_minio="false"
-fi
+function verify_minio_config(){
+    IFS='.' read -r major_v minor_v patch_v <<< "$WEAVIATE_VERSION"
+    if [[ $USAGE_S3 == "true" ]] && [[ $minor_v -lt "32" ]]; then
+        echo_yellow "USAGE_S3 cannot be enable on versions 1.31 and lower. Proceeding without enabling."
+        USAGE_S3="false"
+    fi
+    if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]]; then
+        need_minio="true"
+    else
+        need_minio="false"
+    fi
+}
 
 function get_timeout() {
     # Increase timeout if MODULES is not empty as the module image might take some time to download
@@ -80,7 +87,7 @@ function get_timeout() {
 
 function upgrade() {
     echo_green "upgrade # Upgrading to Weaviate ${WEAVIATE_VERSION}"
-
+    verify_minio_config
     # Make sure to set the right context
     kubectl config use-context kind-weaviate-k8s
 
@@ -147,6 +154,7 @@ function upgrade() {
 
 function setup() {
     echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
+    verify_minio_config
     verify_ports_available $REPLICAS
     mount_config=""
     if [ "${DOCKER_CONFIG}" != "" ]; then
@@ -184,12 +192,12 @@ EOF
     if [[ $need_minio == "true" ]]; then
         startup_minio
     fi
-
+    
     if [[ $USAGE_S3 == "true" ]] && [[ $ENABLE_RUNTIME_OVERRIDES != "true" ]]; then
         echo_red "Must set ENABLE_RUNTIME_OVERRIDES if USAGE_S3 is enabled"
         exit 1
     fi
-
+    
     if [[ $OIDC == "true" ]]; then
         startup_keycloak
     fi
@@ -283,9 +291,7 @@ function clean() {
         helm uninstall weaviate -n weaviate
     fi
 
-    if [[ $need_minio == "true" ]]; then
-        shutdown_minio
-    fi
+    shutdown_minio
 
     # Check if Weaviate namespace exists
     if kubectl get namespace weaviate &> /dev/null; then
