@@ -332,21 +332,70 @@ function wait_for_all_healthy_nodes() {
     exit 1
 }
 
+function is_statistics_synced_for_port() {
+    port=$1
+    nodes_count=$2
+    label=${3:-}
+
+    if curl_with_auth "localhost:${port}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        statistics=$(curl_with_auth "localhost:${port}/v1/cluster/statistics")
+        count=$(echo "$statistics" | jq '.statistics | length')
+        synchronized=$(echo "$statistics" | jq '.synchronized')
+        if [ "$count" == "$nodes_count" ] && [ "$synchronized" == "true" ]; then
+            return 0
+        fi
+        if [ -n "$label" ]; then
+            echo_yellow "$label reports count=$count synchronized=$synchronized"
+        else
+            echo_yellow "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized..."
+        fi
+    else
+        if [ -n "$label" ]; then
+            echo_yellow "$label endpoint not ready on port ${port}"
+        fi
+    fi
+    return 1
+}
+
+
 function wait_for_raft_sync() {
     nodes_count=$1
 
-    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
-        echo_green "Wait for Weaviate Raft schema to be in sync"
+    # Check if /v1/cluster/statistics is supported (older versions may not)
+    if ! curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        echo_yellow "Cluster statistics endpoint not available; skipping Raft sync verification"
+        return
+    fi
+
+    if [[ "$EXPOSE_PODS" == "true" ]]; then
+        echo_green "Wait for Weaviate Raft schema to be in sync across $nodes_count nodes"
         for _ in {1..1200}; do
-            statistics=$(curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics")
-            count=$(echo $statistics | jq '.statistics | length')
-            synchronized=$(echo $statistics | jq '.synchronized')
-            if [ "$count" == "$nodes_count" ] && [ "$synchronized" == "true" ]; then
-                echo_green "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized."
+            synced_nodes=0
+            for i in $(seq 0 $((nodes_count-1))); do
+                port=$((WEAVIATE_PORT+i+1))
+                if is_statistics_synced_for_port "$port" "$nodes_count" "Node weaviate-$i"; then
+                    synced_nodes=$((synced_nodes+1))
+                fi
+            done
+            if [ "$synced_nodes" == "$nodes_count" ]; then
+                echo_green "Weaviate $synced_nodes nodes out of $nodes_count are synchronized."
                 echo_green "Weaviate Raft cluster is in sync"
                 return
             fi
-            echo_yellow "Weaviate $count nodes out of $nodes_count are synchronized: $synchronized..."
+            echo_yellow "Synchronized nodes: $synced_nodes/$nodes_count; retrying in 2s"
+            sleep 2
+        done
+        echo_red "Weaviate Raft schema is not in sync across all nodes"
+        exit 1
+    else
+        # Fallback: service port check (may be load-balanced and less strict)
+        echo_green "Wait for Weaviate Raft schema to be in sync (service)"
+        for _ in {1..1200}; do
+            if is_statistics_synced_for_port "$WEAVIATE_PORT" "$nodes_count"; then
+                echo_green "Weaviate $nodes_count nodes are synchronized (reported via service)."
+                echo_green "Weaviate Raft cluster is in sync"
+                return
+            fi
             echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
             sleep 2
         done
