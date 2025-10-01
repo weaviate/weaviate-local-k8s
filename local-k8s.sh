@@ -244,9 +244,6 @@ EOF
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
-    # Check if Raft schema is in sync
-    # only if the cluster/statistics endpoint is available
-    wait_for_raft_sync $REPLICAS
     echo_green "setup # Success"
     echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
     if [[ $EXPOSE_PODS == "true" ]]; then
