@@ -358,8 +358,53 @@ function is_statistics_synced_for_port() {
 }
 
 
+function log_raft_sync_debug_info() {
+    nodes_count=$1
+
+    echo_yellow "---------- Raft sync debug dump ----------"
+    echo_yellow "[Service] /v1/cluster/statistics:"
+    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-s -o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" | jq '{synchronized: .synchronized, count: (.statistics | length)}' || true
+    else
+        echo_yellow "Service statistics endpoint not reachable"
+    fi
+
+    echo_yellow "[Service] /v1/nodes:"
+    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes" "-s -o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes" | jq '{nodes: [.nodes[] | {name: .name, status: .status}]}' || true
+    else
+        echo_yellow "Service nodes endpoint not reachable"
+    fi
+
+    echo_yellow "[K8s] Pods state (namespace weaviate):"
+    kubectl get pods -n weaviate -o wide || true
+
+    if [[ "$EXPOSE_PODS" == "true" ]]; then
+        for i in $(seq 0 $((nodes_count-1))); do
+            port=$((WEAVIATE_PORT+i+1))
+            echo_yellow "[Node weaviate-$i] /v1/cluster/statistics on port ${port}:"
+            # Best-effort: may fail if the node endpoint isn't up yet
+            curl_with_auth "localhost:${port}/v1/cluster/statistics" | jq '{synchronized: .synchronized, count: (.statistics | length)}' 2>/dev/null || echo_yellow "weaviate-$i statistics unavailable"
+        done
+    fi
+    echo_yellow "-----------------------------------------"
+}
+
+
 function wait_for_raft_sync() {
     nodes_count=$1
+    timeout=$2
+
+    # Convert timeout (e.g., "300s") to seconds
+    timeout_seconds=0
+    if [[ "$timeout" =~ ^([0-9]+)s$ ]]; then
+        timeout_seconds="${BASH_REMATCH[1]}"
+    elif [[ "$timeout" =~ ^([0-9]+)$ ]]; then
+        timeout_seconds="${BASH_REMATCH[1]}"
+    else
+        # fallback: default to 300s if parsing fails
+        timeout_seconds=300
+    fi
 
     # Check if /v1/cluster/statistics is supported (older versions may not)
     if ! curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
@@ -367,42 +412,65 @@ function wait_for_raft_sync() {
         return
     fi
 
+    start_time=$(date +%s)
+
     if [[ "$EXPOSE_PODS" == "true" ]]; then
         echo_green "Wait for Weaviate Raft schema to be in sync across $nodes_count nodes"
-        for _ in {1..1200}; do
+        while true; do
             synced_nodes=0
+            skipped_nodes=0
             for i in $(seq 0 $((nodes_count-1))); do
                 port=$((WEAVIATE_PORT+i+1))
+                # Skip if no kubectl-relay forward is present on this port (either port is busy or forward never started)
+                if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${port}"; then
+                    if lsof -i -n -P | grep LISTEN | grep -q ":${port}"; then
+                        echo_yellow "Skipping Node weaviate-$i Raft check: port ${port} in use by another process"
+                    else
+                        echo_yellow "Skipping Node weaviate-$i Raft check: no local forward on port ${port}"
+                    fi
+                    skipped_nodes=$((skipped_nodes+1))
+                    continue
+                fi
                 if is_statistics_synced_for_port "$port" "$nodes_count" "Node weaviate-$i"; then
                     synced_nodes=$((synced_nodes+1))
                 fi
             done
-            if [ "$synced_nodes" == "$nodes_count" ]; then
-                echo_green "Weaviate $synced_nodes nodes out of $nodes_count are synchronized."
+            expected_nodes=$((nodes_count - skipped_nodes))
+            if [ "$synced_nodes" == "$expected_nodes" ]; then
+                echo_green "Weaviate $synced_nodes nodes out of $expected_nodes are synchronized."
                 echo_green "Weaviate Raft cluster is in sync"
                 return
             fi
-            echo_yellow "Synchronized nodes: $synced_nodes/$nodes_count; retrying in 2s"
+            now=$(date +%s)
+            elapsed=$((now - start_time))
+            if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo_red "Timeout reached ($timeout) - Weaviate Raft schema is not in sync across all nodes"
+                log_raft_sync_debug_info "$nodes_count"
+                exit 1
+            fi
+            echo_yellow "Synchronized nodes: $synced_nodes/$expected_nodes; skipped: $skipped_nodes; retrying in 2s"
             sleep 2
         done
-        echo_red "Weaviate Raft schema is not in sync across all nodes"
-        exit 1
     else
         # Fallback: service port check (may be load-balanced and less strict)
         echo_green "Wait for Weaviate Raft schema to be in sync (service)"
-        for _ in {1..1200}; do
+        while true; do
             if is_statistics_synced_for_port "$WEAVIATE_PORT" "$nodes_count"; then
                 echo_green "Weaviate $nodes_count nodes are synchronized (reported via service)."
                 echo_green "Weaviate Raft cluster is in sync"
                 return
             fi
+            now=$(date +%s)
+            elapsed=$((now - start_time))
+            if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo_red "Timeout reached ($timeout) - Weaviate Raft schema is not in sync"
+                log_raft_sync_debug_info "$nodes_count"
+                exit 1
+            fi
             echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
             sleep 2
         done
-        echo_red "Weaviate Raft schema is not in sync"
-        exit 1
     fi
-
 }
 
 function port_forward_to_weaviate() {
@@ -475,9 +543,49 @@ function port_forward_weaviate_pods() {
         exit 1
     fi
 
+    # Reset skipped endpoints tracker for this invocation
+    FORWARD_SKIPPED_ENDPOINTS=""
+
+    # Helper: ensure kubectl-relay is listening on a local port for a given resource
+    function ensure_krelay_forward() {
+        local resource_type=$1     # svc|sts
+        local resource_name=$2     # resource name
+        local namespace=$3         # k8s namespace
+        local local_port=$4        # local listen port
+        local target_port=$5       # target port in cluster
+        local log_file=$6          # log file
+
+        # Already listening via kubectl-relay?
+        if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${local_port}"; then
+            return 0
+        fi
+
+        # If the port is used by something else, skip
+        if lsof -i -n -P | grep LISTEN | grep -q ":${local_port}"; then
+            echo_yellow "Port ${local_port} is in use by a non-relay process; skipping"
+            FORWARD_SKIPPED_ENDPOINTS="${FORWARD_SKIPPED_ENDPOINTS} ${resource_name}:${target_port}->${local_port}"
+            return 1
+        fi
+
+        /tmp/kubectl-relay ${resource_type}/${resource_name} -n ${namespace} ${local_port}:${target_port} &> ${log_file} &
+
+        # Wait briefly until port is listening, retrying a few times
+        for _ in {1..10}; do
+            if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${local_port}"; then
+                return 0
+            fi
+            sleep 0.5
+        done
+
+        echo_yellow "kubectl-relay failed to listen on ${local_port} for ${resource_type}/${resource_name}. Log (tail):"
+        tail -n 5 "${log_file}" 2>/dev/null || true
+        return 1
+    }
+
     # Create individual services for each pod
     for i in $(seq 0 $((REPLICAS-1))); do
-        kubectl apply -n weaviate -f - <<EOF
+        if ! kubectl get svc weaviate-$i -n weaviate &> /dev/null; then
+            kubectl apply -n weaviate -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -499,22 +607,15 @@ spec:
     port: 6060
     targetPort: 6060
 EOF
+        fi
     done
 
     # Forward through services instead of direct pod references
     for i in $(seq 0 $((REPLICAS-1))); do
-        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_PORT+i+1))"; then
-            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_PORT+i+1)):8080 &> /tmp/weaviate_frwd_$i.log &
-        fi
-        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_GRPC_PORT+i+1))"; then
-            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_GRPC_PORT+i+1)):50051 &> /tmp/weaviate_grpc_frwd_$i.log &
-        fi
-        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((WEAVIATE_METRICS+i+1))"; then
-            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((WEAVIATE_METRICS+i+1)):2112 &> /tmp/weaviate_metrics_frwd_$i.log &
-        fi
-        if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep ":$((PROFILER_PORT+i+1))"; then
-            /tmp/kubectl-relay svc/weaviate-$i -n weaviate $((PROFILER_PORT+i+1)):6060 &> /tmp/weaviate_profiler_frwd_$i.log &
-        fi
+        ensure_krelay_forward svc weaviate-$i weaviate $((WEAVIATE_PORT+i+1)) 8080 /tmp/weaviate_frwd_$i.log || true
+        ensure_krelay_forward svc weaviate-$i weaviate $((WEAVIATE_GRPC_PORT+i+1)) 50051 /tmp/weaviate_grpc_frwd_$i.log || true
+        ensure_krelay_forward svc weaviate-$i weaviate $((WEAVIATE_METRICS+i+1)) 2112 /tmp/weaviate_metrics_frwd_$i.log || true
+        ensure_krelay_forward svc weaviate-$i weaviate $((PROFILER_PORT+i+1)) 6060 /tmp/weaviate_profiler_frwd_$i.log || true
     done
 }
 
