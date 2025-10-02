@@ -141,7 +141,7 @@ function upgrade() {
     wait_for_all_healthy_nodes $REPLICAS
     # Check if Raft schema is in sync
     # only if the cluster/statistics endpoint is available
-    wait_for_raft_sync $REPLICAS
+    wait_for_raft_sync $REPLICAS $TIMEOUT
     echo_green "upgrade # Success"
 }
 

@@ -358,8 +358,53 @@ function is_statistics_synced_for_port() {
 }
 
 
+function log_raft_sync_debug_info() {
+    nodes_count=$1
+
+    echo_yellow "---------- Raft sync debug dump ----------"
+    echo_yellow "[Service] /v1/cluster/statistics:"
+    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-s -o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" | jq '{synchronized: .synchronized, count: (.statistics | length)}' || true
+    else
+        echo_yellow "Service statistics endpoint not reachable"
+    fi
+
+    echo_yellow "[Service] /v1/nodes:"
+    if curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes" "-s -o /dev/null -w '%{http_code}'" | grep -q "200"; then
+        curl_with_auth "localhost:${WEAVIATE_PORT}/v1/nodes" | jq '{nodes: [.nodes[] | {name: .name, status: .status}]}' || true
+    else
+        echo_yellow "Service nodes endpoint not reachable"
+    fi
+
+    echo_yellow "[K8s] Pods state (namespace weaviate):"
+    kubectl get pods -n weaviate -o wide || true
+
+    if [[ "$EXPOSE_PODS" == "true" ]]; then
+        for i in $(seq 0 $((nodes_count-1))); do
+            port=$((WEAVIATE_PORT+i+1))
+            echo_yellow "[Node weaviate-$i] /v1/cluster/statistics on port ${port}:"
+            # Best-effort: may fail if the node endpoint isn't up yet
+            curl_with_auth "localhost:${port}/v1/cluster/statistics" | jq '{synchronized: .synchronized, count: (.statistics | length)}' 2>/dev/null || echo_yellow "weaviate-$i statistics unavailable"
+        done
+    fi
+    echo_yellow "-----------------------------------------"
+}
+
+
 function wait_for_raft_sync() {
     nodes_count=$1
+    timeout=$2
+
+    # Convert timeout (e.g., "300s") to seconds
+    timeout_seconds=0
+    if [[ "$timeout" =~ ^([0-9]+)s$ ]]; then
+        timeout_seconds="${BASH_REMATCH[1]}"
+    elif [[ "$timeout" =~ ^([0-9]+)$ ]]; then
+        timeout_seconds="${BASH_REMATCH[1]}"
+    else
+        # fallback: default to 300s if parsing fails
+        timeout_seconds=300
+    fi
 
     # Check if /v1/cluster/statistics is supported (older versions may not)
     if ! curl_with_auth "localhost:${WEAVIATE_PORT}/v1/cluster/statistics" "-o /dev/null -w '%{http_code}'" | grep -q "200"; then
@@ -367,9 +412,11 @@ function wait_for_raft_sync() {
         return
     fi
 
+    start_time=$(date +%s)
+
     if [[ "$EXPOSE_PODS" == "true" ]]; then
         echo_green "Wait for Weaviate Raft schema to be in sync across $nodes_count nodes"
-        for _ in {1..1200}; do
+        while true; do
             synced_nodes=0
             for i in $(seq 0 $((nodes_count-1))); do
                 port=$((WEAVIATE_PORT+i+1))
@@ -382,27 +429,36 @@ function wait_for_raft_sync() {
                 echo_green "Weaviate Raft cluster is in sync"
                 return
             fi
+            now=$(date +%s)
+            elapsed=$((now - start_time))
+            if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo_red "Timeout reached ($timeout) - Weaviate Raft schema is not in sync across all nodes"
+                log_raft_sync_debug_info "$nodes_count"
+                exit 1
+            fi
             echo_yellow "Synchronized nodes: $synced_nodes/$nodes_count; retrying in 2s"
             sleep 2
         done
-        echo_red "Weaviate Raft schema is not in sync across all nodes"
-        exit 1
     else
         # Fallback: service port check (may be load-balanced and less strict)
         echo_green "Wait for Weaviate Raft schema to be in sync (service)"
-        for _ in {1..1200}; do
+        while true; do
             if is_statistics_synced_for_port "$WEAVIATE_PORT" "$nodes_count"; then
                 echo_green "Weaviate $nodes_count nodes are synchronized (reported via service)."
                 echo_green "Weaviate Raft cluster is in sync"
                 return
             fi
+            now=$(date +%s)
+            elapsed=$((now - start_time))
+            if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo_red "Timeout reached ($timeout) - Weaviate Raft schema is not in sync"
+                log_raft_sync_debug_info "$nodes_count"
+                exit 1
+            fi
             echo_yellow "Raft schema is out of sync, trying again to query Weaviate $nodes_count nodes cluster in 2s"
             sleep 2
         done
-        echo_red "Weaviate Raft schema is not in sync"
-        exit 1
     fi
-
 }
 
 function port_forward_to_weaviate() {
