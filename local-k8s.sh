@@ -249,8 +249,23 @@ EOF
     if [[ $EXPOSE_PODS == "true" ]]; then
         echo_green "setup # Pod's ports are forwarded to:"
         for i in $(seq 0 $((REPLICAS-1))); do
-             echo_green "setup # Weaviate-$i: HTTP=>$((WEAVIATE_PORT+i+1)), GRPC=>$((WEAVIATE_GRPC_PORT+i+1)), METRICS=>$((WEAVIATE_METRICS+i+1)), PROFILER=>$((PROFILER_PORT+i+1))"
+            http_port=$((WEAVIATE_PORT+i+1))
+            grpc_port=$((WEAVIATE_GRPC_PORT+i+1))
+            metrics_port=$((WEAVIATE_METRICS+i+1))
+            profiler_port=$((PROFILER_PORT+i+1))
+
+            http_status="OK"; grpc_status="OK"; metrics_status="OK"; profiler_status="OK"
+            if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${http_port}"; then http_status="SKIPPED"; fi
+            if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${grpc_port}"; then grpc_status="SKIPPED"; fi
+            if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${metrics_port}"; then metrics_status="SKIPPED"; fi
+            if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${profiler_port}"; then profiler_status="SKIPPED"; fi
+
+            echo_green "setup # Weaviate-$i: HTTP=>${http_port}(${http_status}), GRPC=>${grpc_port}(${grpc_status}), METRICS=>${metrics_port}(${metrics_status}), PROFILER=>${profiler_port}(${profiler_status})"
         done
+
+        if [[ -n "${FORWARD_SKIPPED_ENDPOINTS:-}" ]]; then
+            echo_yellow "setup # Some endpoints were not forwarded due to port conflicts:${FORWARD_SKIPPED_ENDPOINTS}"
+        fi
     fi
     if [[ $RBAC == "true" ]]; then
         echo_green "setup # RBAC is enabled"
