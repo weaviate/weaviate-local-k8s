@@ -15,6 +15,13 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     serviceMonitorSelectorNilUsesHelmValues: false
     maximumStartupDurationSeconds: 300
+    additionalScrapeConfigs: |
+     - job_name: "simulator-node"
+       static_configs:
+       - targets: ['host.docker.internal:9100']
+         labels:
+           instance: 'workload-simulator-node'
+
 
 alertmanager:
   enabled: false
