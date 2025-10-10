@@ -96,6 +96,10 @@ function upgrade() {
         kubectl get pod -n weaviate minio &> /dev/null || startup_minio
     fi
 
+    # Ensure fresh pod state logger is running
+    stop_weaviate_pod_state_logger || true
+    start_weaviate_pod_state_logger || true
+
     # This function sets up weaviate-helm and sets the global env var $TARGET
     setup_helm $HELM_BRANCH
 
@@ -181,6 +185,10 @@ EOF
 
     # Create namespace
     kubectl create namespace weaviate
+
+    # Start pod state logger after namespace exists
+    stop_weaviate_pod_state_logger || true
+    start_weaviate_pod_state_logger || true
 
     if [[ $need_minio == "true" ]]; then
         startup_minio
@@ -289,6 +297,10 @@ function clean() {
 
     # Kill kubectl port-forward processes running in the background
     pkill -f "kubectl-relay" || true
+
+    # Stop pod state logger and remove logs
+    stop_weaviate_pod_state_logger || true
+    rm -f /tmp/weaviate_pod_states.log /tmp/weaviate_pod_states.jq || true
 
     # Make sure to set the right context
     kubectl config use-context kind-weaviate-k8s

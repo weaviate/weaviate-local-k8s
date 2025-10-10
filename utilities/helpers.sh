@@ -904,3 +904,26 @@ function use_local_images() {
         kind load docker-image $image --name weaviate-k8s
     done
 }
+
+# Stream Weaviate pod state transitions into /tmp/weaviate_pod_states.log
+function start_weaviate_pod_state_logger() {
+    # Ensure only one logger is running
+    if pgrep -f "kubectl get pods -n weaviate -w" >/dev/null 2>&1; then
+        echo_yellow "Pod state logger already running; skipping"
+        return
+    fi
+
+    echo_green "Starting Weaviate pod state logger -> /tmp/weaviate_pod_states.log"
+    {
+        echo "# $(date) - Starting Weaviate pod state logger";
+        kubectl get pods -n weaviate -w --no-headers=true 2>/dev/null | while read -r name ready phase rest; do
+            printf "%-44s %-16s %s\n" "$name" "$phase" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        done
+    } >> /tmp/weaviate_pod_states.log 2>&1 &
+}
+
+# Stop the Weaviate pod state logger if running
+function stop_weaviate_pod_state_logger() {
+    # kill the kubectl watcher and the surrounding while if present
+    pkill -f "kubectl get pods -n weaviate -w" >/dev/null 2>&1 || true
+}
