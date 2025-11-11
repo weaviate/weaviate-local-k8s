@@ -86,6 +86,10 @@ inputs:
     description: 'Run the action in debug mode (set -x)'
     required: false
     default: 'false'
+  tracing:
+    description: 'Enable tracing. This will enable tracing in Weaviate.'
+    required: false
+    default: 'false'
   enable-runtime-overrides:
    description: 'Whether or no runtime override settings should be enabled in Weaviate.'
    required: false
@@ -131,6 +135,7 @@ runs:
         EXPOSE_PODS: ${{ inputs.expose-pods }}
         ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
+        TRACING: ${{ inputs.tracing }}
       run: |
         # Retry configuration
         MAX_RETRIES=2

@@ -297,3 +297,30 @@ To help manage users and groups in Keycloak for testing purposes, the following 
   ```
 
 The scripts interact with the Keycloak API to manage users and groups, making it easier to test OIDC authentication with Weaviate.
+
+### Tracing (Tempo + OpenTelemetry)
+
+Tracing can be enabled to visualize Weaviate request traces in Grafana via Grafana Tempo. When enabled, a Tempo instance is deployed into the `monitoring` namespace and Weaviate exports OTLP traces directly to it.
+
+Enable tracing for local runs:
+
+```bash
+TRACING=true WEAVIATE_VERSION="1.28.0" ./local-k8s.sh setup
+```
+
+What this does:
+- Installs Grafana Tempo via Helm in the `monitoring` namespace.
+- Adds a Grafana datasource named `Tempo` pointing at the in-cluster Tempo service.
+- Injects OTEL environment variables into Weaviate to export traces to `tempo.monitoring.svc.cluster.local:4317`.
+
+View traces:
+- Open Grafana at `http://localhost:3000` (admin/admin)
+- Go to Explore → select the `Tempo` datasource
+- Search by service `weaviate` and inspect spans
+
+Adjust sampling/export:
+- You can override any OTEL env via `VALUES_INLINE`, for example to reduce sampling rate:
+
+```bash
+TRACING=true VALUES_INLINE="--set env.OTEL_TRACES_SAMPLER_ARG=0.1" WEAVIATE_VERSION="1.28.0" ./local-k8s.sh setup
+```

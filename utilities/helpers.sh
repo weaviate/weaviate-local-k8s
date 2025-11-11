@@ -531,6 +531,7 @@ function port_forward_to_weaviate() {
 
         /tmp/kubectl-relay svc/prometheus-kube-prometheus-prometheus -n monitoring ${PROMETHEUS_PORT}:9090 &> /tmp/prometheus_frwd.log &
     fi
+    
     if [[ $USAGE_S3 == "true" ]]; then
        /tmp/kubectl-relay svc/minio -n weaviate ${MINIO_PORT}:9000 &> /tmp/minio_frwd.log &
     fi
@@ -679,6 +680,18 @@ function generate_helm_values() {
                             --set env.PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY=true"
     fi
 
+    # Tracing configuration
+    if [[ $TRACING == "true" ]]; then
+        helm_values="${helm_values} \
+            --set env.OTEL_ENABLED=true \
+            --set env.OTEL_SERVICE_NAME=weaviate \
+            --set env.OTEL_ENVIRONMENT=development \
+            --set env.OTEL_TRACES_SAMPLER=parentbased_traceidratio \
+            --set env.OTEL_TRACES_SAMPLER_ARG=1.0 \
+            --set env.OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+            --set env.OTEL_EXPORTER_OTLP_ENDPOINT=tempo.monitoring.svc.cluster.local:4317"
+    fi
+
     if [[ $DYNAMIC_USERS == "true" ]]; then
         helm_values="${helm_values} --set authentication.db_users.enabled=true"
     fi
@@ -783,6 +796,15 @@ function setup_monitoring () {
     helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring \
       -f "$(dirname "$0")/helm/kube-prometheus-stack.yaml"
 
+    # Tracing: Install Grafana Tempo if enabled
+    if [[ $TRACING == "true" ]]; then
+        echo_green "*** Tempo (Tracing) ***"
+        helm repo add grafana https://grafana.github.io/helm-charts || true
+        helm repo update
+        helm upgrade --install tempo grafana/tempo --namespace monitoring \
+          -f "$(dirname "$0")/helm/tempo-values.yaml"
+    fi
+
     echo_green "*** Grafana Renderer ***"
     # Deploy grafana-renderer
     #https://grafana.com/grafana/plugins/grafana-image-renderer/
@@ -803,6 +825,11 @@ function wait_for_monitoring () {
 
     kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
     echo_green "Grafana Renderer is ready"
+
+    if [[ $TRACING == "true" ]]; then
+        kubectl wait --for=condition=available deployment/tempo -n monitoring --timeout=180s || true
+        echo_green "Tempo is ready"
+    fi
 }
 
 function startup_keycloak() {

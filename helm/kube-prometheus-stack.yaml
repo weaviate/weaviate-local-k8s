@@ -2,6 +2,11 @@ grafana:
   enabled: true
   adminUser: admin
   adminPassword: admin
+  additionalDataSources:
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.monitoring.svc.cluster.local:3200
   grafana.ini:
     auth.anonymous:
       enabled: true
