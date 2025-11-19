@@ -156,6 +156,7 @@ jobs:
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
+            tracing: 'true'
         - name: Check the configured values
           run: |
               set -ex
@@ -191,6 +192,9 @@ jobs:
                 echo "Error: Weaviate metrics is not listening, returned $error"
                 exit 1
               fi
+              # Verify Tempo (Tracing) pods are running in monitoring namespace
+              kubectl get pods -n monitoring -l app.kubernetes.io/name=tempo
+              kubectl wait pod -n monitoring -l app.kubernetes.io/name=tempo --for=condition=Ready --timeout=180s
               env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ASYNC_INDEXING")].value}')
               if [[ "$env_value" != "true" ]]; then
                   echo "Error: env.ASYNC_INDEXING is not equal to true. Found $env_value"

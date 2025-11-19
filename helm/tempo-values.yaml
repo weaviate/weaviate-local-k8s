@@ -1,0 +1,37 @@
+server:
+  http_listen_port: 3200
+
+tempo:
+  storage:
+    trace:
+      backend: local
+      wal:
+        path: /tmp/tempo/wal
+      local:
+        path: /tmp/tempo/blocks
+
+traces:
+  otlp:
+    grpc:
+      enabled: true
+      listen_address: 0.0.0.0:4317
+    http:
+      enabled: true
+      listen_address: 0.0.0.0:4318
+
+persistence:
+  enabled: false
+
+service:
+  ports:
+    - name: http
+      port: 3200
+    - name: otlp-grpc
+      port: 4317
+    - name: otlp-http
+      port: 4318
+
+
+
+
+
