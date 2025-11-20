@@ -47,14 +47,26 @@ Environment Variables:
     WEAVIATE_GRPC_PORT  gRPC API port (default: 50051)
     WEAVIATE_METRICS    Metrics port (default: 2112)
 
+  Helm Configuration:
+    HELM_TIMEOUT                Timeout for Helm operations (default: 10m)
+    HELM_REPO_UPDATE_TIMEOUT    Timeout for Helm repo updates (default: 5m)
+
   Feature Flags:
     OBSERVABILITY               Enable Prometheus and Grafana monitoring (default: true)
+    DASH0                       Enable Dash0 monitoring and observability (default: false)
     RBAC                        Enable Role-Based Access Control (default: false)
     AUTH_CONFIG                 Path to custom authentication and authorization configuration file (optional)
     ENABLE_BACKUP               Enable backup functionality with MinIO (default: false)
     S3_OFFLOAD                  Enable S3 data offloading with MinIO (default: false)
     USAGE_S3                    Enable collecting usage metrics in MinIO (default: false)
     ENABLE_RUNTIME_OVERRIDES    Enable weaviate configuration via runtime overrides(default: false)
+
+  Dash0 Configuration (when DASH0=true):
+    CLUSTER_NAME                Cluster identifier for Dash0 (default: "weaviate-local-cluster")
+    DASH0_TOKEN                 Dash0 authorization token (required when DASH0=true)
+    DASH0_ENDPOINT              Dash0 export endpoint (default: "ingress.eu-west-1.aws.dash0.com:4317")
+    DASH0_API_ENDPOINT          Dash0 API endpoint (default: "api.eu-west-1.aws.dash0.com")
+
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
                        Available modules: https://weaviate.io/developers/weaviate/model-providers
@@ -71,6 +83,15 @@ Examples:
 
     # Multi-node setup with monitoring disabled
     WORKERS=1 REPLICAS=3 WEAVIATE_VERSION="1.28.0" OBSERVABILITY=false ./local-k8s.sh setup
+
+    # Setup with Dash0 monitoring enabled
+    WEAVIATE_VERSION="1.28.0" DASH0=true CLUSTER_NAME="my-cluster" DASH0_TOKEN="your-token" ./local-k8s.sh setup
+
+    # Setup with custom Dash0 endpoints
+    WEAVIATE_VERSION="1.28.0" DASH0=true DASH0_TOKEN="your-token" DASH0_ENDPOINT="custom.dash0.com:4317" DASH0_API_ENDPOINT="api.custom.dash0.com" ./local-k8s.sh setup
+
+    # Setup with increased timeouts for slow networks
+    WEAVIATE_VERSION="1.28.0" HELM_TIMEOUT="20m" HELM_REPO_UPDATE_TIMEOUT="10m" ./local-k8s.sh setup
 
     # Setup with RBAC enabled
     WEAVIATE_VERSION="1.28.0" RBAC=true ./local-k8s.sh setup
@@ -89,6 +110,12 @@ Notes:
       for container connectivity
     - RBAC default configuration creates a single admin user with 'admin-key'
     - Monitoring (when enabled) provides Grafana (port 3000) and Prometheus (port 9091)
+    - Dash0 (when enabled) provides observability and monitoring via Dash0 operator
+
+Troubleshooting:
+    - For network timeouts, increase HELM_TIMEOUT and HELM_REPO_UPDATE_TIMEOUT
+    - For slow connections, try: HELM_TIMEOUT="20m" HELM_REPO_UPDATE_TIMEOUT="10m"
+    - The script includes automatic retry logic for Helm repository operations
 EOF
 }
 
@@ -154,6 +181,11 @@ function wait_for_other_services() {
     # Wait for monitoring to be ready if observability is enabled
     if [[ $OBSERVABILITY == "true" ]]; then
         wait_for_monitoring
+    fi
+
+    # Wait for Dash0 to be ready if enabled
+    if [[ $DASH0 == "true" ]]; then
+        wait_for_dash0
     fi
 }
 
@@ -747,7 +779,18 @@ function setup_helm () {
         HELM_BRANCH=$1
     fi
 
-    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    echo_green "Adding Helm repositories with timeout settings"
+    
+    # Add prometheus-community repo with retry logic
+    for i in {1..3}; do
+        if helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; then
+            break
+        else
+            echo_yellow "Failed to add prometheus-community repo (attempt $i/3), retrying in 5s..."
+            sleep 5
+        fi
+    done
+
     if [ -n "${HELM_BRANCH:-}" ]; then
         WEAVIATE_HELM_DIR="/tmp/weaviate-helm"
         # Delete $WEAVIATE_HELM_DIR if it already exists
@@ -760,8 +803,26 @@ function setup_helm () {
         helm package -d ${WEAVIATE_HELM_DIR} ${WEAVIATE_HELM_DIR}/weaviate
         TARGET=${WEAVIATE_HELM_DIR}/weaviate-*.tgz
     else
-        helm repo add weaviate https://weaviate.github.io/weaviate-helm
-        helm repo update
+        # Add weaviate repo with retry logic
+        for i in {1..3}; do
+            if helm repo add weaviate https://weaviate.github.io/weaviate-helm; then
+                break
+            else
+                echo_yellow "Failed to add weaviate repo (attempt $i/3), retrying in 5s..."
+                sleep 5
+            fi
+        done
+        
+        # Update repos with retry logic and timeout
+        echo_green "Updating Helm repositories (timeout: $HELM_REPO_UPDATE_TIMEOUT)"
+        for i in {1..3}; do
+            if timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update; then
+                break
+            else
+                echo_yellow "Failed to update repos (attempt $i/3), retrying in 10s..."
+                sleep 10
+            fi
+        done
         TARGET="weaviate/weaviate"
     fi
 
@@ -779,8 +840,9 @@ function setup_monitoring () {
     kubectl create namespace monitoring
 
     echo_green "*** Prometheus Stack ***"
-    # Install kube-prometheus-stack
+    # Install kube-prometheus-stack with timeout
     helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring \
+      --timeout $HELM_TIMEOUT \
       -f "$(dirname "$0")/helm/kube-prometheus-stack.yaml"
 
     echo_green "*** Grafana Renderer ***"
@@ -803,6 +865,86 @@ function wait_for_monitoring () {
 
     kubectl wait pod -n monitoring -l app=grafana-renderer --for=condition=Ready --timeout=240s
     echo_green "Grafana Renderer is ready"
+}
+
+function setup_dash0 () {
+
+    echo_green "Setting up Dash0 monitoring"
+
+    # Validate required DASH0_TOKEN
+    if [[ -z "$DASH0_TOKEN" ]]; then
+        echo_red "DASH0_TOKEN environment variable is required when DASH0=true"
+        echo_red "Please set DASH0_TOKEN with your Dash0 authorization token"
+        exit 1
+    fi
+
+    kubectl create namespace dash0-system
+
+    echo_green "*** Dash0 Authorization Secret ***"
+    # Create Dash0 authorization secret
+    kubectl create secret generic \
+      dash0-authorization-secret \
+        --namespace dash0-system \
+          --from-literal=token="$DASH0_TOKEN"
+
+
+    echo_green "*** Dash0 Operator ***"
+    # Add Dash0 operator helm repo with retry logic
+    for i in {1..3}; do
+        if helm repo add dash0-operator https://dash0hq.github.io/dash0-operator; then
+            break
+        else
+            echo_yellow "Failed to add dash0-operator repo (attempt $i/3), retrying in 5s..."
+            sleep 5
+        fi
+    done
+    
+    # Update dash0-operator repo with timeout
+    for i in {1..3}; do
+        if timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update dash0-operator; then
+            break
+        else
+            echo_yellow "Failed to update dash0-operator repo (attempt $i/3), retrying in 10s..."
+            sleep 10
+        fi
+    done
+
+    # Install Dash0 operator with timeout
+    helm install \
+      --wait \
+      --timeout $HELM_TIMEOUT \
+      --namespace dash0-system \
+      --create-namespace \
+      --set operator.dash0Export.enabled=true \
+      --set operator.dash0Export.endpoint="$DASH0_ENDPOINT" \
+      --set operator.dash0Export.apiEndpoint="$DASH0_API_ENDPOINT" \
+      --set operator.dash0Export.secretRef.name=dash0-authorization-secret \
+      --set operator.dash0Export.secretRef.key=token \
+      --set operator.clusterName="$CLUSTER_NAME" \
+      dash0-operator \
+      dash0-operator/dash0-operator
+
+    echo_green "*** Dash0 Monitoring Configuration ***"
+    # Create temporary file with substituted cluster name
+    temp_dash0_config="/tmp/dash0-monitoring-${CLUSTER_NAME}.yaml"
+    sed "s/ar-performance-001/${CLUSTER_NAME}/g" "$(dirname "$0")/dash0/dash0-monitoring.yaml" > "$temp_dash0_config"
+    
+    # Apply Dash0 monitoring configuration
+    kubectl apply -f "$temp_dash0_config"
+    
+    # Clean up temporary file
+    rm -f "$temp_dash0_config"
+}
+
+function wait_for_dash0 () {
+
+    # Wait for dash0-operator deployment to be ready
+    kubectl wait --for=condition=available deployment/dash0-operator-controller -n dash0-system --timeout=120s
+    echo_green "Dash0 operator is ready"
+
+    # Wait for Dash0Monitoring resource to be applied
+    kubectl wait --for=condition=Available dash0monitoring/weaviate-dash0-monitoring -n weaviate --timeout=120s
+    echo_green "Dash0 monitoring is ready"
 }
 
 function startup_keycloak() {

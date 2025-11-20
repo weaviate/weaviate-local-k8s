@@ -93,6 +93,12 @@ WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" EXPOSE_PODS=false REP
 # Use custome image prefix. e.g: kavirajk/weaviate:1.30.0-dev-a443b9c3af.
 WEAVIATE_IMAGE_PREFIX=kavirajk WEAVIATE_VERSION="1.30.0-dev-a443b9c3af" REPLICAS=3 ./local-k8s.sh setup
 
+# Setup with Dash0 monitoring enabled
+WEAVIATE_VERSION="1.28.0" DASH0=true CLUSTER_NAME="my-cluster" DASH0_TOKEN="your-dash0-token" REPLICAS=3 ./local-k8s.sh setup
+
+# Setup with increased timeouts for slow networks
+WEAVIATE_VERSION="1.28.0" HELM_TIMEOUT="20m" HELM_REPO_UPDATE_TIMEOUT="10m" REPLICAS=3 ./local-k8s.sh setup
+
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
 
@@ -111,6 +117,13 @@ The environment variables that can be passed are:
 - **DYNAMIC_USERS**
 - **AUTH_CONFIG**
 - **EXPOSE_PODS**
+- **DASH0** (Enable Dash0 monitoring)
+- **CLUSTER_NAME** (Cluster identifier for Dash0)
+- **DASH0_TOKEN** (Dash0 authorization token)
+- **DASH0_ENDPOINT** (Dash0 export endpoint)
+- **DASH0_API_ENDPOINT** (Dash0 API endpoint)
+- **HELM_TIMEOUT** (Timeout for Helm operations)
+- **HELM_REPO_UPDATE_TIMEOUT** (Timeout for Helm repo updates)
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
 WEAVIATE_VERSION="preview--d58d616" REPLICAS=5 WORKERS=3 HELM_BRANCH="raft-configuration" WEAVIATE_PORT="8081" ./local-k8s.sh setup
@@ -297,3 +310,39 @@ To help manage users and groups in Keycloak for testing purposes, the following 
   ```
 
 The scripts interact with the Keycloak API to manage users and groups, making it easier to test OIDC authentication with Weaviate.
+
+### Dash0 Monitoring
+
+Dash0 monitoring can be enabled by setting the `DASH0` environment variable to `true`. This will deploy the Dash0 operator and configure it to monitor your Weaviate cluster.
+
+**Required Environment Variables:**
+- `DASH0=true`: Enable Dash0 monitoring
+- `DASH0_TOKEN`: Your Dash0 authorization token (required)
+
+**Optional Environment Variables:**
+- `CLUSTER_NAME`: Cluster identifier for Dash0 (defaults to "weaviate-local-cluster")
+- `DASH0_ENDPOINT`: Dash0 export endpoint (defaults to "ingress.eu-west-1.aws.dash0.com:4317")
+- `DASH0_API_ENDPOINT`: Dash0 API endpoint (defaults to "api.eu-west-1.aws.dash0.com")
+
+**Example Usage:**
+
+```bash
+# Basic Dash0 setup
+WEAVIATE_VERSION="1.28.0" DASH0=true DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Dash0 with custom cluster name
+WEAVIATE_VERSION="1.28.0" DASH0=true CLUSTER_NAME="production-cluster" DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Combine with other monitoring (Prometheus/Grafana)
+WEAVIATE_VERSION="1.28.0" OBSERVABILITY=true DASH0=true DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Custom Dash0 endpoints (for different regions or self-hosted)
+WEAVIATE_VERSION="1.28.0" DASH0=true DASH0_TOKEN="your-token" DASH0_ENDPOINT="custom.dash0.com:4317" DASH0_API_ENDPOINT="api.custom.dash0.com" ./local-k8s.sh setup
+```
+
+**What gets deployed:**
+- Dash0 operator in the `dash0-system` namespace
+- Dash0 monitoring configuration for the Weaviate cluster
+- Automatic instrumentation and observability for your Weaviate deployment
+
+The Dash0 integration provides comprehensive observability, including metrics, traces, and logs for your Weaviate cluster, accessible through the Dash0 platform.

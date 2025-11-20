@@ -37,6 +37,13 @@ VALUES_INLINE=${VALUES_INLINE:-""}
 DELETE_STS=${DELETE_STS:-"false"}
 REPLICAS=${REPLICAS:-1}
 OBSERVABILITY=${OBSERVABILITY:-"true"}
+DASH0=${DASH0:-"false"}
+CLUSTER_NAME=${CLUSTER_NAME:-"weaviate-local-cluster"}
+DASH0_TOKEN=${DASH0_TOKEN:-""}
+DASH0_ENDPOINT=${DASH0_ENDPOINT:-"ingress.eu-west-1.aws.dash0.com:4317"}
+DASH0_API_ENDPOINT=${DASH0_API_ENDPOINT:-"api.eu-west-1.aws.dash0.com"}
+HELM_TIMEOUT=${HELM_TIMEOUT:-"10m"}
+HELM_REPO_UPDATE_TIMEOUT=${HELM_REPO_UPDATE_TIMEOUT:-"5m"}
 PROMETHEUS_PORT=9091
 GRAFANA_PORT=3000
 KEYCLOAK_PORT=9090
@@ -72,6 +79,9 @@ function get_timeout() {
         modules_timeout=$((modules_timeout + 100))
     fi
     if [ "$OBSERVABILITY" == "true" ]; then
+        modules_timeout=$((modules_timeout + 100))
+    fi
+    if [ "$DASH0" == "true" ]; then
         modules_timeout=$((modules_timeout + 100))
     fi
 
@@ -124,6 +134,7 @@ function upgrade() {
         VALUES_OVERRIDE: $VALUES_OVERRIDE"
     helm upgrade weaviate $TARGET  \
         --namespace weaviate \
+        --timeout $HELM_TIMEOUT \
         $HELM_VALUES \
         $VALUES_OVERRIDE
 
@@ -211,6 +222,11 @@ EOF
         setup_monitoring
     fi
 
+    # Setup Dash0 monitoring in the weaviate cluster
+    if [[ $DASH0 == "true" ]]; then
+        setup_dash0
+    fi
+
     VALUES_OVERRIDE=""
     # Check if values-override.yaml file exists
     if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
@@ -226,6 +242,7 @@ EOF
     # Install Weaviate using Helm
     helm upgrade --install weaviate $TARGET \
     --namespace weaviate \
+    --timeout $HELM_TIMEOUT \
     $HELM_VALUES \
     $VALUES_OVERRIDE
     #--set debug=true
@@ -289,6 +306,9 @@ EOF
     if [[ $OBSERVABILITY == "true" ]]; then
         echo_green "setup # Grafana is accessible on http://localhost:$GRAFANA_PORT (admin/admin)"
         echo_green "setup # Prometheus is accessible on http://localhost:$PROMETHEUS_PORT"
+    fi
+    if [[ $DASH0 == "true" ]]; then
+        echo_green "setup # Dash0 monitoring is enabled and configured"
     fi
 }
 
