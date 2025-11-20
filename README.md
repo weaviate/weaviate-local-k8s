@@ -20,6 +20,13 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
 - **usage-s3**: When set to true it configures Weaviate to support S3 collecting usage metrics in s3 with minio. Only supported in version 1.32 and greater. `enable-runtime-overrides` must also be enabled for this setting to work.
 - **enable-runtime-overrides**: Enables runtime configuration for Weaviate.
+- **dash0**: When set to true it enables Dash0 monitoring and observability. Requires `dash0-token` to be provided.
+- **cluster-name**: Cluster identifier for Dash0 monitoring (optional, defaults to 'weaviate-local-cluster')
+- **dash0-token**: Dash0 authorization token (required when dash0=true)
+- **dash0-endpoint**: Dash0 export endpoint (optional, defaults to '')
+- **dash0-api-endpoint**: Dash0 API endpoint (optional, defaults to '')
+- **helm-timeout**: Timeout for Helm operations (optional, defaults to '10m')
+- **helm-repo-update-timeout**: Timeout for Helm repository updates (optional, defaults to '5m')
 - **expose-pods**: Allows accessing each of the weaviate pods port numbers: http, grpc, metrics and profiler (default: true). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc... The same applies for the gRPC port, so weaviate-0 is exposed on 50052, weaviate-1 in 50053, weaviate-2 in 50054, etc... Similar for metrics, so weaviate-0 is exposed on 2113, weaviate-1 in 2114, weaviate-2 in 2115, etc... and for profiler, so weaviate-0 is exposed on 6061, weaviate-1 in 6062, weaviate-2 in 6063, etc...
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
@@ -63,6 +70,29 @@ To use this action in your GitHub Actions workflow, you can add the following st
             BACKUP_S3_BUCKET: 'weaviate-backups'
             BACKUP_S3_USE_SSL: 'false'
 
+# Example with Dash0 monitoring enabled
+- name: Deploy Weaviate with Dash0 monitoring
+  uses: weaviate/weaviate-local-k8s@v2
+  with:
+    weaviate-version: '1.28.0'
+    replicas: '3'
+    dash0: 'true'
+    cluster-name: 'ci-cluster'
+    dash0-token: ${{ secrets.DASH0_TOKEN }}
+    observability: 'true'  # Can combine with traditional monitoring
+
+# Example with custom Dash0 endpoints and increased timeouts
+- name: Deploy Weaviate with custom Dash0 configuration
+  uses: weaviate/weaviate-local-k8s@v2
+  with:
+    weaviate-version: '1.28.0'
+    dash0: 'true'
+    cluster-name: 'production-cluster'
+    dash0-token: ${{ secrets.DASH0_TOKEN }}
+    dash0-endpoint: 'custom.dash0.com:4317'
+    dash0-api-endpoint: 'api.custom.dash0.com'
+    helm-timeout: '20m'
+    helm-repo-update-timeout: '10m'
 ```
 
 ### Local Execution
@@ -321,8 +351,8 @@ Dash0 monitoring can be enabled by setting the `DASH0` environment variable to `
 
 **Optional Environment Variables:**
 - `CLUSTER_NAME`: Cluster identifier for Dash0 (defaults to "weaviate-local-cluster")
-- `DASH0_ENDPOINT`: Dash0 export endpoint (defaults to "ingress.eu-west-1.aws.dash0.com:4317")
-- `DASH0_API_ENDPOINT`: Dash0 API endpoint (defaults to "api.eu-west-1.aws.dash0.com")
+- `DASH0_ENDPOINT`: Dash0 export endpoint (defaults to "")
+- `DASH0_API_ENDPOINT`: Dash0 API endpoint (defaults to "")
 
 **Example Usage:**
 

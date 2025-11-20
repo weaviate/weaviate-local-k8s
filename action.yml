@@ -62,6 +62,26 @@ inputs:
     description: 'Enable observability stack'
     required: false
     default: 'false'
+  dash0:
+    description: 'Enable Dash0 monitoring and observability'
+    required: false
+    default: 'false'
+  cluster-name:
+    description: 'Cluster identifier for Dash0 monitoring'
+    required: false
+    default: 'weaviate-local-cluster'
+  dash0-token:
+    description: 'Dash0 authorization token (required when dash0=true)'
+    required: false
+    default: ''
+  dash0-endpoint:
+    description: 'Dash0 export endpoint'
+    required: false
+    default: ''
+  dash0-api-endpoint:
+    description: 'Dash0 API endpoint'
+    required: false
+    default: ''
   expose-pods:
     description: 'Expose the weaviate-pods to be accessible in weaviate-port + i where i=1,2,3..replicas'
     required: false
@@ -124,6 +144,11 @@ runs:
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
         OBSERVABILITY: ${{ inputs.observability }}
+        DASH0: ${{ inputs.dash0 }}
+        CLUSTER_NAME: ${{ inputs.cluster-name }}
+        DASH0_TOKEN: ${{ inputs.dash0-token }}
+        DASH0_ENDPOINT: ${{ inputs.dash0-endpoint }}
+        DASH0_API_ENDPOINT: ${{ inputs.dash0-api-endpoint }}
         RBAC: ${{ inputs.rbac }}
         OIDC: ${{ inputs.oidc }}
         DYNAMIC_USERS: ${{ inputs.dynamic-users }}
