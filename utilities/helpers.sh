@@ -626,7 +626,9 @@ function generate_helm_values() {
                         --set env.RAFT_BOOTSTRAP_TIMEOUT=3600 \
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
-                        --set env.DISABLE_TELEMETRY=true"
+                        --set env.DISABLE_TELEMETRY=true \
+                        --set resources.requests.memory=1GiB \
+                        --set resources.limits.memory=1GiB"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
