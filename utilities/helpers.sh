@@ -628,9 +628,9 @@ function generate_helm_values() {
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true \
                         --set resources.requests.memory=1250MiB \
-                        --set resources.limits.memory=1250MiB
-                        --set resources.requests.cpu=1 \
-                        --set resources.limits.cpu=1"
+                        --set resources.limits.memory=1250MiB \
+                        --set resources.requests.cpu=1000m \
+                        --set resources.limits.cpu=1000m"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
