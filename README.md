@@ -20,6 +20,13 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
 - **usage-s3**: When set to true it configures Weaviate to support S3 collecting usage metrics in s3 with minio. Only supported in version 1.32 and greater. `enable-runtime-overrides` must also be enabled for this setting to work.
 - **enable-runtime-overrides**: Enables runtime configuration for Weaviate.
+- **dash0**: When set to true it enables Dash0 monitoring and observability. Requires `dash0-token` to be provided.
+- **cluster-name**: Cluster identifier for Dash0 monitoring (optional, defaults to 'weaviate-local-cluster')
+- **dash0-token**: Dash0 authorization token (required when dash0=true)
+- **dash0-endpoint**: Dash0 export endpoint (optional, defaults to '')
+- **dash0-api-endpoint**: Dash0 API endpoint (optional, defaults to '')
+- **helm-timeout**: Timeout for Helm operations (optional, defaults to '10m')
+- **helm-repo-update-timeout**: Timeout for Helm repository updates (optional, defaults to '5m')
 - **expose-pods**: Allows accessing each of the weaviate pods port numbers: http, grpc, metrics and profiler (default: true). The port number will start on weaviate-port (default: 8080) +1. This way, weaviate-0 is exposed on 8081, weaviate-1 in 8082, weaviate-2 in 8083, etc... The same applies for the gRPC port, so weaviate-0 is exposed on 50052, weaviate-1 in 50053, weaviate-2 in 50054, etc... Similar for metrics, so weaviate-0 is exposed on 2113, weaviate-1 in 2114, weaviate-2 in 2115, etc... and for profiler, so weaviate-0 is exposed on 6061, weaviate-1 in 6062, weaviate-2 in 6063, etc...
 - **values-override**: Override values for the Helm chart in YAML string. (Optional, default: '')
 - **rbac**: When set to true it will create an admin user with admin role and the API key be `admin-key`. (Optional, default: 'false')
@@ -63,6 +70,29 @@ To use this action in your GitHub Actions workflow, you can add the following st
             BACKUP_S3_BUCKET: 'weaviate-backups'
             BACKUP_S3_USE_SSL: 'false'
 
+# Example with Dash0 monitoring enabled
+- name: Deploy Weaviate with Dash0 monitoring
+  uses: weaviate/weaviate-local-k8s@v2
+  with:
+    weaviate-version: '1.28.0'
+    replicas: '3'
+    dash0: 'true'
+    cluster-name: 'ci-cluster'
+    dash0-token: ${{ secrets.DASH0_TOKEN }}
+    observability: 'true'  # Can combine with traditional monitoring
+
+# Example with custom Dash0 endpoints and increased timeouts
+- name: Deploy Weaviate with custom Dash0 configuration
+  uses: weaviate/weaviate-local-k8s@v2
+  with:
+    weaviate-version: '1.28.0'
+    dash0: 'true'
+    cluster-name: 'production-cluster'
+    dash0-token: ${{ secrets.DASH0_TOKEN }}
+    dash0-endpoint: 'custom.dash0.com:4317'
+    dash0-api-endpoint: 'api.custom.dash0.com'
+    helm-timeout: '20m'
+    helm-repo-update-timeout: '10m'
 ```
 
 ### Local Execution
@@ -93,6 +123,12 @@ WEAVIATE_VERSION="1.25.0" HELM_BRANCH="raft-configuration" EXPOSE_PODS=false REP
 # Use custome image prefix. e.g: kavirajk/weaviate:1.30.0-dev-a443b9c3af.
 WEAVIATE_IMAGE_PREFIX=kavirajk WEAVIATE_VERSION="1.30.0-dev-a443b9c3af" REPLICAS=3 ./local-k8s.sh setup
 
+# Setup with Dash0 monitoring enabled
+WEAVIATE_VERSION="1.28.0" DASH0=true CLUSTER_NAME="my-cluster" DASH0_TOKEN="your-dash0-token" REPLICAS=3 ./local-k8s.sh setup
+
+# Setup with increased timeouts for slow networks
+WEAVIATE_VERSION="1.28.0" HELM_TIMEOUT="20m" HELM_REPO_UPDATE_TIMEOUT="10m" REPLICAS=3 ./local-k8s.sh setup
+
 # Clean up the local Kubernetes cluster
 ./local-k8s.sh clean
 
@@ -111,6 +147,13 @@ The environment variables that can be passed are:
 - **DYNAMIC_USERS**
 - **AUTH_CONFIG**
 - **EXPOSE_PODS**
+- **DASH0** (Enable Dash0 monitoring)
+- **CLUSTER_NAME** (Cluster identifier for Dash0)
+- **DASH0_TOKEN** (Dash0 authorization token)
+- **DASH0_ENDPOINT** (Dash0 export endpoint)
+- **DASH0_API_ENDPOINT** (Dash0 API endpoint)
+- **HELM_TIMEOUT** (Timeout for Helm operations)
+- **HELM_REPO_UPDATE_TIMEOUT** (Timeout for Helm repo updates)
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
 WEAVIATE_VERSION="preview--d58d616" REPLICAS=5 WORKERS=3 HELM_BRANCH="raft-configuration" WEAVIATE_PORT="8081" ./local-k8s.sh setup
@@ -297,3 +340,39 @@ To help manage users and groups in Keycloak for testing purposes, the following 
   ```
 
 The scripts interact with the Keycloak API to manage users and groups, making it easier to test OIDC authentication with Weaviate.
+
+### Dash0 Monitoring
+
+Dash0 monitoring can be enabled by setting the `DASH0` environment variable to `true`. This will deploy the Dash0 operator and configure it to monitor your Weaviate cluster.
+
+**Required Environment Variables:**
+- `DASH0=true`: Enable Dash0 monitoring
+- `DASH0_TOKEN`: Your Dash0 authorization token (required)
+
+**Optional Environment Variables:**
+- `CLUSTER_NAME`: Cluster identifier for Dash0 (defaults to "weaviate-local-cluster")
+- `DASH0_ENDPOINT`: Dash0 export endpoint (defaults to "")
+- `DASH0_API_ENDPOINT`: Dash0 API endpoint (defaults to "")
+
+**Example Usage:**
+
+```bash
+# Basic Dash0 setup
+WEAVIATE_VERSION="1.28.0" DASH0=true DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Dash0 with custom cluster name
+WEAVIATE_VERSION="1.28.0" DASH0=true CLUSTER_NAME="production-cluster" DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Combine with other monitoring (Prometheus/Grafana)
+WEAVIATE_VERSION="1.28.0" OBSERVABILITY=true DASH0=true DASH0_TOKEN="your-dash0-token" ./local-k8s.sh setup
+
+# Custom Dash0 endpoints (for different regions or self-hosted)
+WEAVIATE_VERSION="1.28.0" DASH0=true DASH0_TOKEN="your-token" DASH0_ENDPOINT="custom.dash0.com:4317" DASH0_API_ENDPOINT="api.custom.dash0.com" ./local-k8s.sh setup
+```
+
+**What gets deployed:**
+- Dash0 operator in the `dash0-system` namespace
+- Dash0 monitoring configuration for the Weaviate cluster
+- Automatic instrumentation and observability for your Weaviate deployment
+
+The Dash0 integration provides comprehensive observability, including metrics, traces, and logs for your Weaviate cluster, accessible through the Dash0 platform.

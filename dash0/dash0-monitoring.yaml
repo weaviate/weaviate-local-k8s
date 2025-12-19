@@ -1,0 +1,15 @@
+apiVersion: operator.dash0.com/v1beta1
+kind: Dash0Monitoring
+metadata:
+  name: weaviate-dash0-monitoring
+  namespace: weaviate
+  labels:
+    app: weaviate
+spec:
+  instrumentWorkloads:
+    mode: none
+  transform:
+    metric_statements:
+      - statements:
+        - set(datapoint.attributes["customer_cluster_identifier"],"ar-performance-001")
+        - set(datapoint.attributes["env"], "dev")    
