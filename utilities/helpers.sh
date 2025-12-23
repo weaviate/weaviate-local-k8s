@@ -914,6 +914,7 @@ function setup_dash0 () {
       --wait \
       --timeout $HELM_TIMEOUT \
       --namespace dash0-system \
+      --version 0.92.1 \
       --create-namespace \
       --set operator.dash0Export.enabled=true \
       --set operator.dash0Export.endpoint="$DASH0_ENDPOINT" \
