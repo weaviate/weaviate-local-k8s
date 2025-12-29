@@ -108,7 +108,7 @@ function wait_for_minio() {
                 /usr/bin/mc mb minio/weaviate-backups;
                 /usr/bin/mc policy set public minio/weaviate-backups;
             else
-                echo 'Bucket minio/weaviate-usage already exists.';
+                echo 'Bucket minio/weaviate-backups already exists.';
             fi;
             if ! /usr/bin/mc ls minio/weaviate-usage > /dev/null 2>&1; then
                 /usr/bin/mc mb minio/weaviate-usage;
@@ -627,8 +627,8 @@ function generate_helm_values() {
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true \
-                        --set resources.requests.memory=1250MiB \
-                        --set resources.limits.memory=1250MiB \
+                        --set resources.requests.memory=1250Mi \
+                        --set resources.limits.memory=1250Mi \
                         --set resources.requests.cpu=1000m \
                         --set resources.limits.cpu=1000m"
 
