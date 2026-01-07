@@ -177,8 +177,16 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: weaviate-k8s
 nodes:
 - role: control-plane
+  kubeadmConfigPatches:
+  - |-
+    kind: KubeletConfiguration
+    podPidsLimit: 64
 ${mount_config}
 $([ "${WORKERS:-""}" != "" ] && for i in $(seq 1 $WORKERS); do echo "- role: worker
+  kubeadmConfigPatches:
+  - |-
+    kind: KubeletConfiguration
+    podPidsLimit: 64
 ${mount_config}"; done)
 EOF
     conf=$(cat /tmp/kind-config.yaml)
