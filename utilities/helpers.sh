@@ -687,7 +687,8 @@ function generate_helm_values() {
     fi
 
     if [[ $USAGE_S3 == "true" ]]; then
-        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set USAGE_S3_PREFIX=billing --set usage.s3.enabled=true"
+        # prefix only set with overrides to ensure the override is appropriately read by weaviate 
+        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set usage.s3.enabled=true"
         helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
     fi
 
