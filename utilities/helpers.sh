@@ -566,6 +566,9 @@ function port_forward_to_weaviate() {
     if [[ $USAGE_S3 == "true" ]]; then
        /tmp/kubectl-relay svc/minio -n weaviate ${MINIO_PORT}:9000 &> /tmp/minio_frwd.log &
     fi
+    if [[ $MCP_ENABLED == "true" ]]; then
+        /tmp/kubectl-relay svc/weaviate-mcp -n weaviate ${MCP_PORT_FORWARDED}:9000 &> /tmp/mcp_frwd.log &
+    fi
 }
 
 function port_forward_weaviate_pods() {
@@ -768,6 +771,10 @@ function generate_helm_values() {
     # Check if VALUES_INLINE variable is not empty
     if [ "$VALUES_INLINE" != "" ]; then
         helm_values="$helm_values $VALUES_INLINE"
+    fi
+
+    if [[ $MCP_ENABLED == "true" ]]; then
+        helm_values="${helm_values} --set mcpService.enabled=true"
     fi
 
     echo "$helm_values"

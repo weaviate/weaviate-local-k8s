@@ -79,6 +79,8 @@ jobs:
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
+        MCP_ENABLED: 'true'
+        MCP_PORT_FORWARDED: '9901'
         HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
@@ -156,6 +158,7 @@ jobs:
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
+            mcp: ${{ env.MCP_ENABLED }}
         - name: Check the configured values
           run: |
               set -ex
@@ -236,6 +239,11 @@ jobs:
               if [[ $? -ne 0 ]]; then
                   echo "Error: Failed to authenticate with the keycloak"
                   exit 1
+              fi
+              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ env.MCP_PORT_FORWARDED }}/health)
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: MCP service is not listening, returned $error"
+                exit 1
               fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest

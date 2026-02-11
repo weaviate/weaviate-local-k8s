@@ -114,6 +114,10 @@ inputs:
    description: 'File location containing the docker configuration that contains auth to be mounted in KInD.'
    required: false
    default: ''
+  mcp:
+    description: 'Whether or not to enable the MCP service in Weaviate.'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -156,6 +160,7 @@ runs:
         EXPOSE_PODS: ${{ inputs.expose-pods }}
         ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
+        MCP_ENABLED: ${{ inputs.mcp }}
       run: |
         # Retry configuration
         MAX_RETRIES=2
