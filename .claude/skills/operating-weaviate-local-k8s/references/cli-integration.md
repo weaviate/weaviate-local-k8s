@@ -76,8 +76,8 @@ EOF
 ### Multiple OIDC Users
 
 ```bash
-TOKEN_ADMIN=$(bash "$WEAVIATE_LOCAL_K8S_DIR/utilities/get_user_token.sh" admin@example.com)
-TOKEN_DEV=$(bash "$WEAVIATE_LOCAL_K8S_DIR/utilities/get_user_token.sh" dev@example.com)
+TOKEN_ADMIN=$(bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/get_user_token.sh" admin@example.com)
+TOKEN_DEV=$(bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/get_user_token.sh" dev@example.com)
 
 cat > ~/.config/weaviate/local-oidc-multi.json <<EOF
 {
