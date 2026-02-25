@@ -122,7 +122,7 @@ RBAC=true ENABLE_BACKUP=true ./local-k8s.sh setup
 
 # Verify manually
 kubectl get pods -n weaviate
-curl -sf localhost:8080/v1/nodes | jq .
+curl -sf -H "Authorization: Bearer admin-key" localhost:8080/v1/nodes | jq .
 ```
 
 ### CI Failure Debugging
