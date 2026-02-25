@@ -50,10 +50,8 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | Fast startup (no monitoring) | `OBSERVABILITY=false` |
 | Custom Helm chart | `HELM_BRANCH="main"` |
 | Local images (offline/rate limits) | `./local-k8s.sh setup --local-images` |
-=======
 | Custom Weaviate env vars | `VALUES_INLINE="--set env.VAR_NAME=value"` (see VALUES_INLINE section) |
 | Custom Helm values | `VALUES_INLINE="--set key=value"` (see VALUES_INLINE section) |
-| Local images (offline/rate limits) | `./local-k8s.sh setup --local-images` |
 | Test from local source | Build image + `--local-images` (see Build from Local Source) |
 
 ### Timeout Estimation
