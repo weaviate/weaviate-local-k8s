@@ -1,3 +1,17 @@
+# Detect the host's IANA timezone (e.g. "Europe/Berlin").
+# Works on macOS and Linux. Falls back to UTC if detection fails.
+function detect_host_timezone() {
+    local tz=""
+    if [ -L /etc/localtime ]; then
+        # Works on macOS and most Linux distros where /etc/localtime is a symlink
+        tz=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+    elif [ -f /etc/timezone ]; then
+        # Debian/Ubuntu store the timezone name here
+        tz=$(cat /etc/timezone)
+    fi
+    echo "${tz:-UTC}"
+}
+
 function echo_green() {
     green='\033[0;32m'
     nc='\033[0m'
@@ -709,6 +723,25 @@ function generate_helm_values() {
                         --set env.DISABLE_RECOVERY_ON_PANIC=true \
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true"
+
+    # Sync pod timezone with the host so time-sensitive operations (e.g. TTL) behave consistently.
+    # The Weaviate image (Alpine) has no tzdata, so we mount zoneinfo from the Kind node via hostPath
+    # and set TZ so the Go runtime picks up the correct timezone.
+    local host_tz
+    host_tz=$(detect_host_timezone)
+    cat <<TZEOF > /tmp/weaviate-tz-values.yaml
+env:
+  TZ: "${host_tz}"
+extraVolumes:
+  - name: zoneinfo
+    hostPath:
+      path: /usr/share/zoneinfo
+extraVolumeMounts:
+  - name: zoneinfo
+    mountPath: /usr/share/zoneinfo
+    readOnly: true
+TZEOF
+    helm_values="${helm_values} -f /tmp/weaviate-tz-values.yaml"
 
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
