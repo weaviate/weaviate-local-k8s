@@ -44,6 +44,7 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | OIDC auth | `OIDC=true RBAC=true` |
 | Dynamic users | `DYNAMIC_USERS=true RBAC=true` |
 | S3 backups | `ENABLE_BACKUP=true` |
+| Collection export | `ENABLE_BACKUP=true` |
 | Tenant offloading | `S3_OFFLOAD=true` |
 | Usage metrics | `USAGE_S3=true ENABLE_RUNTIME_OVERRIDES=true` |
 | Modules | `MODULES="text2vec-transformers"` |
@@ -113,6 +114,8 @@ WEAVIATE_VERSION="1.28.0" ENABLE_BACKUP=true ./local-k8s.sh setup
 ```
 
 MinIO on port 9000. Credentials: `aws_access_key` / `aws_secret_key`.
+
+**Note**: `ENABLE_BACKUP=true` also enables collection export (`weaviate-cli create export-collection`). Export uses the same S3 storage backend (MinIO) as backups.
 
 When both `ENABLE_BACKUP=true` and `USAGE_S3=true` are enabled, MinIO serves both purposes with separate buckets:
 - `weaviate-backups/` — backup data
