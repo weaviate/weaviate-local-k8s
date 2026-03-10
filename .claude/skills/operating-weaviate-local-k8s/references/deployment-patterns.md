@@ -117,6 +117,22 @@ HELM_TIMEOUT="20m" ./local-k8s.sh setup
 
 Module images are large. Timeout automatically increases by 1200s.
 
+### Collection Export Testing
+
+```bash
+WORKERS=2 REPLICAS=3 WEAVIATE_VERSION="1.37.0" \
+ENABLE_BACKUP=true \
+./local-k8s.sh setup
+```
+
+Collection export requires `ENABLE_BACKUP=true` (uses the same MinIO S3 backend as backups). Test with `weaviate-cli`:
+
+```bash
+weaviate-cli create export-collection --export_id my-export --backend s3 --wait --json
+weaviate-cli get export-collection --export_id my-export --backend s3 --json
+weaviate-cli cancel export-collection --export_id my-export --backend s3 --json
+```
+
 ### CI/CD Pipeline
 
 ```bash
