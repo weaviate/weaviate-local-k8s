@@ -110,6 +110,10 @@ jobs:
           env:
             ASYNC_INDEXING: true
             LOG_LEVEL: debug
+          runtime_overrides:
+            enabled: true
+            values:
+              objects_ttl_delete_schedule: "@every 10s"
         VALUES_INLINE: '--set env.PERSISTENCE_LSM_ACCESS_STRATEGY=pread'
       steps:
         - name: Checkout repository
@@ -249,6 +253,12 @@ jobs:
               curl --fail -s -X POST -d grant_type=password -d client_id=demo -d username=admin -d password=admin http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate/protocol/openid-connect/token | jq -r .access_token
               if [[ $? -ne 0 ]]; then
                   echo "Error: Failed to authenticate with the keycloak"
+                  exit 1
+              fi
+              # Verify runtime overrides ConfigMap was created with special character values (@ in cron schedule)
+              configmap_data=$(kubectl get configmap weaviate-runtime-overrides -n weaviate -o=jsonpath='{.data.overrides\.yaml}')
+              if ! echo "$configmap_data" | grep -q "@every 10s"; then
+                  echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
               fi
     run-weaviate-local-k8s-which-fails:
