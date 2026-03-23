@@ -62,6 +62,20 @@ jobs:
               echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
+            # Verify that pods have the same timezone as the host
+            host_tz=$(cat /etc/timezone 2>/dev/null || readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+            pod_tz=$(kubectl exec -n weaviate weaviate-0 -c weaviate -- printenv TZ)
+            if [[ "$pod_tz" != "$host_tz" ]]; then
+                echo "Error: Pod timezone ($pod_tz) does not match host timezone ($host_tz)"
+                exit 1
+            fi
+            # Verify the pod's clock actually reflects the host timezone
+            host_utc_offset=$(date +%z)
+            pod_utc_offset=$(kubectl exec -n weaviate weaviate-0 -c weaviate -- date +%z)
+            if [[ "$pod_utc_offset" != "$host_utc_offset" ]]; then
+                echo "Error: Pod UTC offset ($pod_utc_offset) does not match host UTC offset ($host_utc_offset)"
+                exit 1
+            fi
             #Verify that pods are not exposed
             for i in $(seq 0 $((REPLICAS-1))); do
               PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
@@ -98,6 +112,10 @@ jobs:
           env:
             ASYNC_INDEXING: true
             LOG_LEVEL: debug
+          runtime_overrides:
+            enabled: true
+            values:
+              objects_ttl_delete_schedule: "@every 10s"
         VALUES_INLINE: '--set env.PERSISTENCE_LSM_ACCESS_STRATEGY=pread'
       steps:
         - name: Checkout repository
@@ -244,6 +262,11 @@ jobs:
               if [[ "$error" -ne 200 ]]; then
                 echo "Error: MCP service is not listening, returned $error"
                 exit 1
+              # Verify runtime overrides ConfigMap was created with special character values (@ in cron schedule)
+              configmap_data=$(kubectl get configmap weaviate-runtime-overrides -n weaviate -o=jsonpath='{.data.overrides\.yaml}')
+              if ! echo "$configmap_data" | grep -q "@every 10s"; then
+                  echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
+                  exit 1
               fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest

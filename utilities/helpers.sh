@@ -1,3 +1,17 @@
+# Detect the host's IANA timezone (e.g. "Europe/Berlin").
+# Works on macOS and Linux. Falls back to UTC if detection fails.
+function detect_host_timezone() {
+    local tz=""
+    if [ -L /etc/localtime ]; then
+        # Works on macOS and most Linux distros where /etc/localtime is a symlink
+        tz=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+    elif [ -f /etc/timezone ]; then
+        # Debian/Ubuntu store the timezone name here
+        tz=$(cat /etc/timezone)
+    fi
+    echo "${tz:-UTC}"
+}
+
 function echo_green() {
     green='\033[0;32m'
     nc='\033[0m'
@@ -14,6 +28,56 @@ function echo_red() {
     red='\033[0;31m'
     nc='\033[0m'
     echo -e "${red}${*}${nc}"
+}
+
+# Cross-platform timeout function
+# Works on Linux (timeout) and macOS (gtimeout or fallback implementation)
+function run_with_timeout() {
+    local timeout_duration=$1
+    shift
+    local cmd="$@"
+
+    # Try to use timeout command (Linux) or gtimeout (macOS with GNU coreutils)
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$timeout_duration" $cmd
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$timeout_duration" $cmd
+    else
+        # Fallback: implement timeout using background process
+        # Convert timeout duration to seconds
+        local timeout_seconds
+        if [[ "$timeout_duration" =~ ^([0-9]+)m$ ]]; then
+            timeout_seconds=$((${BASH_REMATCH[1]} * 60))
+        elif [[ "$timeout_duration" =~ ^([0-9]+)s$ ]]; then
+            timeout_seconds=${BASH_REMATCH[1]}
+        elif [[ "$timeout_duration" =~ ^([0-9]+)$ ]]; then
+            timeout_seconds=${BASH_REMATCH[1]}
+        else
+            echo_red "Invalid timeout format: $timeout_duration"
+            return 1
+        fi
+
+        # Run command in background
+        $cmd &
+        local cmd_pid=$!
+
+        # Wait for command or timeout
+        local elapsed=0
+        while kill -0 $cmd_pid 2>/dev/null && [ $elapsed -lt $timeout_seconds ]; do
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+
+        # Check if process is still running (timed out)
+        if kill -0 $cmd_pid 2>/dev/null; then
+            kill $cmd_pid 2>/dev/null
+            wait $cmd_pid 2>/dev/null
+            return 124  # Exit code 124 indicates timeout (matches GNU timeout)
+        else
+            wait $cmd_pid
+            return $?
+        fi
+    fi
 }
 
 function startup_minio() {
@@ -663,6 +727,25 @@ function generate_helm_values() {
                         --set env.PROMETHEUS_MONITORING_ENABLED=true \
                         --set env.DISABLE_TELEMETRY=true"
 
+    # Sync pod timezone with the host so time-sensitive operations (e.g. TTL) behave consistently.
+    # The Weaviate image (Alpine) has no tzdata, so we mount zoneinfo from the Kind node via hostPath
+    # and set TZ so the Go runtime picks up the correct timezone.
+    local host_tz
+    host_tz=$(detect_host_timezone)
+    cat <<TZEOF > /tmp/weaviate-tz-values.yaml
+env:
+  TZ: "${host_tz}"
+extraVolumes:
+  - name: zoneinfo
+    hostPath:
+      path: /usr/share/zoneinfo
+extraVolumeMounts:
+  - name: zoneinfo
+    mountPath: /usr/share/zoneinfo
+    readOnly: true
+TZEOF
+    helm_values="${helm_values} -f /tmp/weaviate-tz-values.yaml"
+
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
 
@@ -788,7 +871,7 @@ function setup_helm () {
     fi
 
     echo_green "Adding Helm repositories with timeout settings"
-    
+
     # Add prometheus-community repo with retry logic
     for i in {1..3}; do
         if helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; then
@@ -820,11 +903,11 @@ function setup_helm () {
                 sleep 5
             fi
         done
-        
+
         # Update repos with retry logic and timeout
         echo_green "Updating Helm repositories (timeout: $HELM_REPO_UPDATE_TIMEOUT)"
         for i in {1..3}; do
-            if timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update; then
+            if run_with_timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update; then
                 break
             else
                 echo_yellow "Failed to update repos (attempt $i/3), retrying in 10s..."
@@ -906,10 +989,10 @@ function setup_dash0 () {
             sleep 5
         fi
     done
-    
+
     # Update dash0-operator repo with timeout
     for i in {1..3}; do
-        if timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update dash0-operator; then
+        if run_with_timeout $HELM_REPO_UPDATE_TIMEOUT helm repo update dash0-operator; then
             break
         else
             echo_yellow "Failed to update dash0-operator repo (attempt $i/3), retrying in 10s..."
@@ -937,10 +1020,10 @@ function setup_dash0 () {
     # Create temporary file with substituted cluster name
     temp_dash0_config="/tmp/dash0-monitoring-${CLUSTER_NAME}.yaml"
     sed "s/ar-performance-001/${CLUSTER_NAME}/g" "$(dirname "$0")/dash0/dash0-monitoring.yaml" > "$temp_dash0_config"
-    
+
     # Apply Dash0 monitoring configuration
     kubectl apply -f "$temp_dash0_config"
-    
+
     # Clean up temporary file
     rm -f "$temp_dash0_config"
 }

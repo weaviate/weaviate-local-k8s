@@ -16,6 +16,18 @@ REQUIREMENTS=(
     "jq"
 )
 
+# Add platform-specific timeout binaries to requirements
+case "$(uname -s)" in
+    Darwin)
+        # On macOS, timeout is provided by coreutils as 'gtimeout'
+        REQUIREMENTS+=("gtimeout")
+        ;;
+    *)
+        # On most Linux distros, 'timeout' is available from coreutils
+        REQUIREMENTS+=("timeout")
+        ;;
+esac
+
 # NOTE: If triggering some of the scripts locally on Mac, you might find an error from the test complaining
 # that the injection Docker container can't connect to localhost:8080. This is because the Docker container
 # is running in a separate network and can't access the host network. To fix this, you can use the IP address

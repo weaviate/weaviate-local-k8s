@@ -128,8 +128,10 @@ runs:
     - name: Create values-override.yaml
       shell: bash
       if: ${{ inputs.values-override != '' }}
+      env:
+        VALUES_CONTENT: ${{ inputs.values-override }}
       run: |
-        echo "${{ inputs.values-override }}" > ${{ github.action_path }}/values-override.yaml
+        printf '%s\n' "$VALUES_CONTENT" > ${{ github.action_path }}/values-override.yaml
     - name: Deploy local kubernetes cluster
       shell: bash
       env:
