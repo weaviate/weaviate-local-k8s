@@ -630,9 +630,6 @@ function port_forward_to_weaviate() {
     if [[ $USAGE_S3 == "true" ]]; then
        /tmp/kubectl-relay svc/minio -n weaviate ${MINIO_PORT}:9000 &> /tmp/minio_frwd.log &
     fi
-    if [[ $MCP_ENABLED == "true" ]]; then
-        /tmp/kubectl-relay svc/weaviate-mcp -n weaviate ${MCP_PORT_FORWARDED}:9000 &> /tmp/mcp_frwd.log &
-    fi
 }
 
 function port_forward_weaviate_pods() {

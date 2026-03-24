@@ -262,6 +262,10 @@ jobs:
               if ! echo "$configmap_data" | grep -q "@every 10s"; then
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
+              if [[ "$error" -ne 200 ]]; then
+                echo "Error: MCP server is not listening, returned $error"
+                exit 1
+              fi
               error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
               if [[ "$error" -ne 200 ]]; then
                 echo "Error: MCP server is not listening, returned $error"
