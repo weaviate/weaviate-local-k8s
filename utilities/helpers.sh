@@ -770,16 +770,23 @@ TZEOF
     fi
 
     if [[ $USAGE_S3 == "true" ]]; then
-        # prefix only set with overrides to ensure the override is appropriately read by weaviate 
-        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set env.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set usage.s3.enabled=true"
+        # prefix only set with overrides to ensure the override is appropriately read by weaviate
+        # Note: USAGE_S3_BUCKET must be set via usage.s3.envconfig (not env.*) to avoid a duplicate
+        # env var: when usage.s3.enabled=true the chart already renders usage.s3.envconfig entries
+        # as container env vars, and Kubernetes 1.35+ rejects duplicate env var names.
+        helm_values="${helm_values} --set env.AWS_REGION=us-east-1 --set env.AWS_ENDPOINT=minio.weaviate.svc.cluster.local:9000 --set usage.s3.envconfig.USAGE_S3_BUCKET=weaviate-usage --set env.USAGE_SCRAPE_INTERVAL=10s --set usage.s3.enabled=true"
         helm_values="${helm_values} --set runtime_overrides.values.usage_scrape_interval=10s --set runtime_overrides.values.usage_s3_bucket=weaviate-usage --set runtime_overrides.values.usage_s3_prefix=billing"
     fi
 
     if [[ $S3_OFFLOAD == "true" ]]; then
         secrets="--set offload.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set offload.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
         if [[ $ENABLE_BACKUP == "true" ]]; then
-            # if backup was already enabled we need to reference that S3 AWS secret.
-            secrets="--set offload.s3.envSecrets.AWS_ACCESS_KEY_ID=backup-s3 --set offload.s3.envSecrets.AWS_SECRET_ACCESS_KEY=backup-s3"
+            # When backup is also enabled, backups.s3.secrets already causes the chart to mount
+            # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from the backup-s3 Secret into the
+            # container. Setting offload.s3.envSecrets for the same keys would produce a second
+            # entry for each name, which Kubernetes 1.35+ rejects. The offload module reuses the
+            # credentials already present in the container environment via the backup secret.
+            secrets=""
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
     fi
