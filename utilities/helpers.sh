@@ -861,7 +861,10 @@ TZEOF
     fi
 
     if [[ $MCP_ENABLED == "true" ]]; then
-        helm_values="${helm_values} --set mcpService.enabled=true"
+        helm_values="${helm_values} --set mcp.enabled=true"
+        if [[ $MCP_WRITE_ACCESS_ENABLED == "true" ]]; then
+            helm_values="${helm_values} --set mcp.writeAccessEnabled=true"
+        fi
     fi
 
     echo "$helm_values"

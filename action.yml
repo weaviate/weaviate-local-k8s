@@ -118,6 +118,10 @@ inputs:
     description: 'Whether or not to enable the MCP service in Weaviate.'
     required: false
     default: 'false'
+  mcp-write-access:
+    description: 'Whether or not to enable MCP write access (object upsert).'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -163,6 +167,7 @@ runs:
         ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
         MCP_ENABLED: ${{ inputs.mcp }}
+        MCP_WRITE_ACCESS_ENABLED: ${{ inputs.mcp-write-access }}
       run: |
         # Retry configuration
         MAX_RETRIES=2
