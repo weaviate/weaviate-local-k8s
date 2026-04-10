@@ -59,7 +59,8 @@ All are string `"true"` / `"false"`.
 |----------|---------|-------------|--------------|
 | `OBSERVABILITY` | `"true"` | Prometheus + Grafana stack | |
 | `EXPOSE_PODS` | `"true"` | Per-pod port forwarding | |
-| `ENABLE_BACKUP` | `"false"` | S3 backup and collection export via MinIO | Deploys MinIO |
+| `ENABLE_BACKUP` | `"false"` | S3 backup via MinIO | Deploys MinIO |
+| `COLLECTION_EXPORT` | `"false"` | Collection export to S3/MinIO (`collectionExport` Helm feature) | Deploys MinIO; auto-configures backup-s3 module if `ENABLE_BACKUP=false` |
 | `S3_OFFLOAD` | `"false"` | Tenant offloading to S3 | Deploys MinIO |
 | `USAGE_S3` | `"false"` | Usage metrics in S3 | Requires `ENABLE_RUNTIME_OVERRIDES=true` |
 | `ENABLE_RUNTIME_OVERRIDES` | `"false"` | Dynamic config reloading (30s interval) | |

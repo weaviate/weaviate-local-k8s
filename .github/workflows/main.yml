@@ -99,6 +99,7 @@ jobs:
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
         ENABLE_BACKUP: 'true'
+        COLLECTION_EXPORT: 'true'
         USAGE_S3: 'true'
         ENABLE_RUNTIME_OVERRIDES: 'true'
         RBAC: 'true'
@@ -168,6 +169,7 @@ jobs:
             enable-runtime-overrides: ${{ env.ENABLE_RUNTIME_OVERRIDES }}
             modules: ${{ env.MODULES }}
             enable-backup: ${{ env.ENABLE_BACKUP }}
+            collection-export: ${{ env.COLLECTION_EXPORT }}
             values-inline: ${{ env.VALUES_INLINE }}
             observability: 'true'
             rbac: ${{ env.RBAC }}
@@ -530,6 +532,8 @@ jobs:
         WORKERS: '1'
         REPLICAS: '5'
         WEAVIATE_VERSION: '1.26.3'
+        ENABLE_BACKUP: 'true'
+        COLLECTION_EXPORT: 'true'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -539,7 +543,8 @@ jobs:
           with:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
-            enable-backup: 'true'
+            enable-backup: ${{ env.ENABLE_BACKUP }}
+            collection-export: ${{ env.COLLECTION_EXPORT }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
         - name: Check the configured values
           run: |
@@ -584,6 +589,21 @@ jobs:
               echo "The backup has been started."
             else
               echo "The backup status is not STARTED/SUCCEEDED or the json output is not the expected."
+              exit 1
+            fi
+            echo "Create a collection export"
+            curl -X POST -H "Content-Type: application/json" \
+              -d '{
+                  "id": "test-collection-export",
+                  "include": ["Article"],
+                  "fileFormat": "parquet"
+                  }' \
+              http://localhost:8080/v1/export/s3
+            response=$(curl -s http://localhost:8080/v1/export/s3/test-collection-export)
+            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCEEDED" or .status == "RUNNING"' > /dev/null 2>&1; then
+              echo "The collection export has been started."
+            else
+              echo "The collection export status is not STARTED/RUNNING/SUCCEEDED or the json output is not the expected."
               exit 1
             fi
     run-weaviate-local-k8s-rbac:

@@ -186,7 +186,7 @@ EOF
 function wait_for_minio() {
     kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
     echo_green "Minio is ready"
-    if [[ $ENABLE_BACKUP == "true" || $USAGE_S3 == "true" ]]; then
+    if [[ $ENABLE_BACKUP == "true" || $USAGE_S3 == "true" || $COLLECTION_EXPORT == "true" ]]; then
         # Run minio/mc in a single shot to create the bucket
         # Check if the minio-mc pod already exists and delete it if necessary
         if kubectl get pod minio-mc -n weaviate &>/dev/null; then
@@ -199,13 +199,19 @@ function wait_for_minio() {
                 /usr/bin/mc mb minio/weaviate-backups;
                 /usr/bin/mc policy set public minio/weaviate-backups;
             else
-                echo 'Bucket minio/weaviate-usage already exists.';
+                echo 'Bucket minio/weaviate-backups already exists.';
             fi;
             if ! /usr/bin/mc ls minio/weaviate-usage > /dev/null 2>&1; then
                 /usr/bin/mc mb minio/weaviate-usage;
                 /usr/bin/mc policy set public minio/weaviate-usage;
             else
                 echo 'Bucket minio/weaviate-usage already exists.';
+            fi;
+            if ! /usr/bin/mc ls minio/weaviate-export > /dev/null 2>&1; then
+                /usr/bin/mc mb minio/weaviate-export;
+                /usr/bin/mc policy set public minio/weaviate-export;
+            else
+                echo 'Bucket minio/weaviate-export already exists.';
             fi;"
             # Wait for the pod/minio-mc to complete
             timeout=100  # Timeout in seconds
@@ -789,6 +795,24 @@ TZEOF
             secrets=""
         fi
         helm_values="${helm_values} --set offload.s3.enabled=true --set offload.s3.envconfig.OFFLOAD_S3_BUCKET_AUTO_CREATE=true --set offload.s3.envconfig.OFFLOAD_S3_ENDPOINT=http://minio:9000 ${secrets}"
+    fi
+
+    if [[ $COLLECTION_EXPORT == "true" ]]; then
+        helm_values="${helm_values} --set collectionExport.enabled=true --set collectionExport.envconfig.EXPORT_DEFAULT_BUCKET=weaviate-export"
+        if [[ $ENABLE_BACKUP != "true" ]]; then
+            # Collection export uses the backup-s3 module as its S3 storage backend. When backup
+            # is not already enabled, configure the backup-s3 module to point to MinIO so that
+            # collection export can write to it.
+            # Avoid setting backups.s3.secrets when offload is also active: the weaviate-helm
+            # awsSecret.yaml guard fails if more than one feature provides AWS credential secrets.
+            # When offload is active, its credentials are already in the container and the
+            # backup-s3 module will pick them up without needing its own secret.
+            backup_s3_secrets=""
+            if [[ $S3_OFFLOAD != "true" ]]; then
+                backup_s3_secrets="--set backups.s3.secrets.AWS_ACCESS_KEY_ID=aws_access_key --set backups.s3.secrets.AWS_SECRET_ACCESS_KEY=aws_secret_key"
+            fi
+            helm_values="${helm_values} --set backups.s3.enabled=true --set backups.s3.envconfig.BACKUP_S3_ENDPOINT=minio:9000 --set backups.s3.envconfig.BACKUP_S3_USE_SSL=false ${backup_s3_secrets}"
+        fi
     fi
 
     if [[ $ENABLE_RUNTIME_OVERRIDES == "true" ]]; then
