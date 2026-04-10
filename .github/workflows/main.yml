@@ -277,6 +277,27 @@ jobs:
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
               fi
+              echo "Create a collection for export"
+              curl -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"class": "ExportTest"}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema
+              echo "Create a collection export"
+              curl -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{
+                    "id": "test-collection-export",
+                    "include": ["ExportTest"],
+                    "fileFormat": "parquet"
+                    }' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3
+              response=$(curl -s -H "Authorization: Bearer admin-key" http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3/test-collection-export)
+              if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCEEDED" or .status == "RUNNING"' > /dev/null 2>&1; then
+                echo "The collection export has been started."
+              else
+                echo "The collection export status is not STARTED/RUNNING/SUCCEEDED or the json output is not the expected."
+                exit 1
+              fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
       name: Create a single-node Weaviate cluster with non existing image.
