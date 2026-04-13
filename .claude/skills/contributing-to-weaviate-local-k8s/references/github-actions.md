@@ -36,6 +36,8 @@ inputs:
   debug:               # -> DEBUG (default: 'false')
   enable-runtime-overrides: # -> ENABLE_RUNTIME_OVERRIDES
   docker-config:       # -> DOCKER_CONFIG
+  mcp:                 # -> MCP_ENABLED (default: 'false')
+  mcp-write-access:    # -> MCP_WRITE_ACCESS_ENABLED (default: 'false')
 ```
 
 ### Special Input: values-override

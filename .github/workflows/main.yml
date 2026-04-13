@@ -94,6 +94,7 @@ jobs:
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
         MCP_ENABLED: 'true'
+        MCP_WRITE_ACCESS_ENABLED: 'true'
         HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
@@ -176,6 +177,7 @@ jobs:
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
             mcp: ${{ env.MCP_ENABLED }}
+            mcp-write-access: ${{ env.MCP_WRITE_ACCESS_ENABLED }}
         - name: Check the configured values
           run: |
               set -ex
@@ -262,11 +264,9 @@ jobs:
               if ! echo "$configmap_data" | grep -q "@every 10s"; then
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
-              if [[ "$error" -ne 200 ]]; then
-                echo "Error: MCP server is not listening, returned $error"
-                exit 1
               fi
-              error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
+              # Verify MCP server is accessible via Weaviate REST endpoint
+              error=$(curl -H "Authorization: Bearer admin-key" -s -o /dev/null -w "%{http_code}" http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
               if [[ "$error" -ne 200 ]]; then
                 echo "Error: MCP server is not listening, returned $error"
                 exit 1

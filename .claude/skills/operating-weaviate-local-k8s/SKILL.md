@@ -53,6 +53,8 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | Local images (offline/rate limits) | `./local-k8s.sh setup --local-images` |
 | Custom Weaviate env vars | `VALUES_INLINE="--set env.VAR_NAME=value"` (see VALUES_INLINE section) |
 | Custom Helm values | `VALUES_INLINE="--set key=value"` (see VALUES_INLINE section) |
+| MCP server | `MCP_ENABLED=true` |
+| MCP with write access | `MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true` |
 | Test from local source | Build image + `--local-images` (see Build from Local Source) |
 
 ### Timeout Estimation
@@ -131,6 +133,18 @@ WORKERS=2 REPLICAS=3 WEAVIATE_VERSION="1.28.0" \
   RBAC=true ENABLE_BACKUP=true S3_OFFLOAD=true \
   ENABLE_RUNTIME_OVERRIDES=true OBSERVABILITY=true \
   HELM_TIMEOUT="20m" ./local-k8s.sh setup
+```
+
+### With MCP Server
+
+```bash
+WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true ./local-k8s.sh setup
+```
+
+MCP is exposed through the Weaviate REST endpoint at `http://localhost:8080/v1/mcp`. No separate port forwarding needed. To enable write access (object upsert):
+
+```bash
+WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true ./local-k8s.sh setup
 ```
 
 ### Minimal (Fastest Startup)

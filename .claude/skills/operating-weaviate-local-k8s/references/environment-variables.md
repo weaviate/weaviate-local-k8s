@@ -68,6 +68,8 @@ All are string `"true"` / `"false"`.
 | `DYNAMIC_USERS` | `"false"` | Runtime user management | |
 | `DASH0` | `"false"` | Dash0 observability platform | Requires `DASH0_TOKEN` |
 | `DEBUG` | `"false"` | Enables `set -x` in scripts | |
+| `MCP_ENABLED` | `"false"` | Enable MCP server (accessible via `/v1/mcp`) | |
+| `MCP_WRITE_ACCESS_ENABLED` | `"false"` | Enable MCP write access (object upsert) | Requires `MCP_ENABLED=true` |
 | `DELETE_STS` | `"false"` | Delete StatefulSet on upgrade (destructive) | |
 
 ## Images and Modules
@@ -106,3 +108,4 @@ All are string `"true"` / `"false"`.
 4. `DOCKER_CONFIG` must be absolute path (no `~` expansion)
 5. Any of `ENABLE_BACKUP`, `S3_OFFLOAD`, `USAGE_S3` being `true` triggers MinIO deployment
 6. `rbac` and `admin_list` are mutually exclusive in Helm auth config
+7. `MCP_WRITE_ACCESS_ENABLED=true` requires `MCP_ENABLED=true`

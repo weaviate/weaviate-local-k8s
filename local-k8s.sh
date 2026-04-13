@@ -224,6 +224,11 @@ EOF
         exit 1
     fi
 
+    if [[ $MCP_WRITE_ACCESS_ENABLED == "true" ]] && [[ $MCP_ENABLED != "true" ]]; then
+        echo_red "Must set MCP_ENABLED if MCP_WRITE_ACCESS_ENABLED is enabled"
+        exit 1
+    fi
+
     if [[ $OIDC == "true" ]]; then
         startup_keycloak
     fi
