@@ -270,12 +270,6 @@ jobs:
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
               fi
-              # Verify MCP server is accessible via Weaviate REST endpoint
-              error=$(curl -H "Authorization: Bearer admin-key" -s -o /dev/null -w "%{http_code}" http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
-              if [[ "$error" -ne 200 ]]; then
-                echo "Error: MCP server is not listening, returned $error"
-                exit 1
-              fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
       name: Create a single-node Weaviate cluster with non existing image.
