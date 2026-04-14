@@ -259,6 +259,11 @@ jobs:
                   echo "Error: Failed to authenticate with the keycloak"
                   exit 1
               fi
+              # Verify MCP is available (served on the same Weaviate REST port)
+              if ! curl -sf --max-time 5 http://localhost:${{ env.WEAVIATE_PORT }}/v1/.well-known/ready > /dev/null 2>&1; then
+                  echo "Error: Weaviate/MCP server is not ready"
+                  exit 1
+              fi
               # Verify runtime overrides ConfigMap was created with special character values (@ in cron schedule)
               configmap_data=$(kubectl get configmap weaviate-runtime-overrides -n weaviate -o=jsonpath='{.data.overrides\.yaml}')
               if ! echo "$configmap_data" | grep -q "@every 10s"; then
