@@ -259,9 +259,14 @@ jobs:
                   echo "Error: Failed to authenticate with the keycloak"
                   exit 1
               fi
-              # Verify MCP is available (served on the same Weaviate REST port)
-              if ! curl -sf --max-time 5 http://localhost:${{ env.WEAVIATE_PORT }}/v1/.well-known/ready > /dev/null 2>&1; then
-                  echo "Error: Weaviate/MCP server is not ready"
+              # Verify MCP server responds to JSON-RPC initialize
+              mcp_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0.0"}}}' \
+                http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
+              if [[ "$mcp_status" -ne 200 ]]; then
+                  echo "Error: MCP server is not responding, returned $mcp_status"
                   exit 1
               fi
               # Verify runtime overrides ConfigMap was created with special character values (@ in cron schedule)
