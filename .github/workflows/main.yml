@@ -93,8 +93,8 @@ jobs:
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
-        MCP_ENABLED: 'true'
-        MCP_WRITE_ACCESS_ENABLED: 'true'
+        MCP: 'true'
+        MCP_WRITE_ACCESS: 'true'
         HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
@@ -176,8 +176,8 @@ jobs:
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
-            mcp: ${{ env.MCP_ENABLED }}
-            mcp-write-access: ${{ env.MCP_WRITE_ACCESS_ENABLED }}
+            mcp: ${{ env.MCP }}
+            mcp-write-access: ${{ env.MCP_WRITE_ACCESS }}
         - name: Check the configured values
           run: |
               set -ex

@@ -166,8 +166,8 @@ runs:
         EXPOSE_PODS: ${{ inputs.expose-pods }}
         ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}
         DOCKER_CONFIG: ${{ inputs.docker-config }}
-        MCP_ENABLED: ${{ inputs.mcp }}
-        MCP_WRITE_ACCESS_ENABLED: ${{ inputs.mcp-write-access }}
+        MCP: ${{ inputs.mcp }}
+        MCP_WRITE_ACCESS: ${{ inputs.mcp-write-access }}
       run: |
         # Retry configuration
         MAX_RETRIES=2

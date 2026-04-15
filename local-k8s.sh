@@ -66,8 +66,8 @@ OIDC=${OIDC:-"false"}
 DYNAMIC_USERS=${DYNAMIC_USERS:-"false"}
 AUTH_CONFIG=${AUTH_CONFIG:-""}
 DEBUG=${DEBUG:-"false"}
-MCP_ENABLED=${MCP_ENABLED:-"false"}
-MCP_WRITE_ACCESS_ENABLED=${MCP_WRITE_ACCESS_ENABLED:-"false"}
+MCP=${MCP:-"false"}
+MCP_WRITE_ACCESS=${MCP_WRITE_ACCESS:-"false"}
 DOCKER_CONFIG=${DOCKER_CONFIG:-""}
 ENABLE_RUNTIME_OVERRIDES=${ENABLE_RUNTIME_OVERRIDES:-"false"}
 RUNTIME_OVERRIDES_PATH=${RUNTIME_OVERRIDES_PATH:-"/config/overrides.yaml"}
@@ -224,8 +224,8 @@ EOF
         exit 1
     fi
 
-    if [[ $MCP_WRITE_ACCESS_ENABLED == "true" ]] && [[ $MCP_ENABLED != "true" ]]; then
-        echo_red "Must set MCP_ENABLED if MCP_WRITE_ACCESS_ENABLED is enabled"
+    if [[ $MCP_WRITE_ACCESS == "true" ]] && [[ $MCP != "true" ]]; then
+        echo_red "Must set MCP if MCP_WRITE_ACCESS is enabled"
         exit 1
     fi
 
@@ -329,7 +329,7 @@ EOF
     if [[ $DASH0 == "true" ]]; then
         echo_green "setup # Dash0 monitoring is enabled and configured"
     fi
-    if [[ $MCP_ENABLED == "true" ]]; then
+    if [[ $MCP == "true" ]]; then
         echo_green "setup # MCP server is enabled and accessible on http://localhost:$WEAVIATE_PORT/v1/mcp"
     fi
 }
