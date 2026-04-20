@@ -133,6 +133,24 @@ weaviate-cli get export-collection --export_id my-export --backend s3 --json
 weaviate-cli cancel export-collection --export_id my-export --backend s3 --json
 ```
 
+### MCP Server
+
+Enable the MCP (Model Context Protocol) server for AI agent integration:
+
+```bash
+WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true ./local-k8s.sh setup
+```
+
+MCP is a Weaviate-internal feature — no separate service or port forwarding needed. The server is accessible via the Weaviate REST endpoint at `http://localhost:8080/v1/mcp`.
+
+Enable write access (object upsert) for full MCP capabilities:
+
+```bash
+WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true ./local-k8s.sh setup
+```
+
+Verify: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/v1/mcp` (expect 200).
+
 ### CI/CD Pipeline
 
 ```bash

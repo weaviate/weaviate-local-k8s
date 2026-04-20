@@ -93,6 +93,8 @@ jobs:
         WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
         WEAVIATE_PORT: '8081'
         WEAVIATE_GRPC_PORT: '50052'
+        MCP: 'true'
+        MCP_WRITE_ACCESS: 'true'
         HELM_BRANCH: 'main'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
@@ -174,6 +176,8 @@ jobs:
             auth-config: ${{ env.AUTH_CONFIG }}
             debug: 'true'
             expose-pods: ${{ env.EXPOSE_PODS }}
+            mcp: ${{ env.MCP }}
+            mcp-write-access: ${{ env.MCP_WRITE_ACCESS }}
         - name: Check the configured values
           run: |
               set -ex
@@ -253,6 +257,16 @@ jobs:
               curl --fail -s -X POST -d grant_type=password -d client_id=demo -d username=admin -d password=admin http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate/protocol/openid-connect/token | jq -r .access_token
               if [[ $? -ne 0 ]]; then
                   echo "Error: Failed to authenticate with the keycloak"
+                  exit 1
+              fi
+              # Verify MCP server responds to JSON-RPC initialize
+              mcp_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0.0"}}}' \
+                http://localhost:${{ env.WEAVIATE_PORT }}/v1/mcp)
+              if [[ "$mcp_status" -ne 200 ]]; then
+                  echo "Error: MCP server is not responding, returned $mcp_status"
                   exit 1
               fi
               # Verify runtime overrides ConfigMap was created with special character values (@ in cron schedule)

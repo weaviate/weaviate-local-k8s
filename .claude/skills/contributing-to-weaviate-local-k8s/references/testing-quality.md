@@ -7,7 +7,7 @@ Test coverage map, adding tests, and quality standards.
 | Feature | Test Job | Verified |
 |---------|----------|----------|
 | Basic multi-node | `run-weaviate-local-k8s-basic` | Replicas, workers, version, metrics |
-| All parameters | `run-weaviate-local-k8s-all-params` | All features, RBAC, OIDC, modules, backup, monitoring, env vars, port exposure |
+| All parameters | `run-weaviate-local-k8s-all-params` | All features, RBAC, OIDC, modules, backup, monitoring, MCP, env vars, port exposure |
 | Failure handling | `run-weaviate-local-k8s-which-fails` | Bad image graceful failure |
 | Modules | `run-weaviate-local-k8s-with-module` | text2vec-contextionary, model2vec |
 | Raft upgrade | `run-weaviate-local-k8s-raft-upgrade` | 1.24.9 -> 1.25.0 with DELETE_STS |

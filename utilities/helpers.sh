@@ -860,6 +860,13 @@ TZEOF
         helm_values="$helm_values $VALUES_INLINE"
     fi
 
+    if [[ $MCP == "true" ]]; then
+        helm_values="${helm_values} --set mcp.enabled=true"
+        if [[ $MCP_WRITE_ACCESS == "true" ]]; then
+            helm_values="${helm_values} --set mcp.writeAccessEnabled=true"
+        fi
+    fi
+
     echo "$helm_values"
 }
 

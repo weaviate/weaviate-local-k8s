@@ -161,6 +161,13 @@ function setup_helm() {
 | `offload.s3.enabled` | Enable offloading |
 | `env.OFFLOAD_S3_BUCKET_AUTO_CREATE` | Auto-create buckets |
 
+### MCP
+
+| Flag | Description |
+|------|-------------|
+| `mcp.enabled` | Enable MCP server (accessible via `/v1/mcp`) |
+| `mcp.writeAccessEnabled` | Enable MCP write access (object upsert) |
+
 ## weaviate-helm Compatibility
 
 The `--set` flags must match the weaviate-helm chart values schema. Reference: https://github.com/weaviate/weaviate-helm
