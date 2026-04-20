@@ -124,6 +124,10 @@ Environment Variables:
     S3_OFFLOAD                  Enable S3 data offloading with MinIO (default: false)
     USAGE_S3                    Enable collecting usage metrics in MinIO (default: false)
     ENABLE_RUNTIME_OVERRIDES    Enable weaviate configuration via runtime overrides(default: false)
+    MCP_ENABLED                 Enable MCP server (default: false)
+    MCP_WRITE_ACCESS            Enable MCP write access (default: false)
+    COLLECTION_EXPORT           Enable collection export to S3/MinIO (default: false)
+    RUNTIME_OVERRIDES_PATH      Path to runtime overrides configuration file (default: "/config/overrides.yaml")
 
   Dash0 Configuration (when DASH0=true):
     CLUSTER_NAME                Cluster identifier for Dash0 (default: "weaviate-local-cluster")
