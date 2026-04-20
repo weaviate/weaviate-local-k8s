@@ -44,7 +44,7 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | OIDC auth | `OIDC=true RBAC=true` |
 | Dynamic users | `DYNAMIC_USERS=true RBAC=true` |
 | S3 backups | `ENABLE_BACKUP=true` |
-| Collection export | `ENABLE_BACKUP=true` |
+| Collection export | `COLLECTION_EXPORT=true` |
 | Tenant offloading | `S3_OFFLOAD=true` |
 | Usage metrics | `USAGE_S3=true ENABLE_RUNTIME_OVERRIDES=true` |
 | Modules | `MODULES="text2vec-transformers"` |
@@ -117,7 +117,7 @@ WEAVIATE_VERSION="1.28.0" ENABLE_BACKUP=true ./local-k8s.sh setup
 
 MinIO on port 9000. Credentials: `aws_access_key` / `aws_secret_key`.
 
-**Note**: `ENABLE_BACKUP=true` also enables collection export (`weaviate-cli create export-collection`). Export uses the same S3 storage backend (MinIO) as backups.
+Collection export is configured separately via `COLLECTION_EXPORT=true` (see the Collection Export section below). Both backup and collection export use MinIO as the S3 backend.
 
 When both `ENABLE_BACKUP=true` and `USAGE_S3=true` are enabled, MinIO serves both purposes with separate buckets:
 - `weaviate-backups/` — backup data
@@ -125,12 +125,30 @@ When both `ENABLE_BACKUP=true` and `USAGE_S3=true` are enabled, MinIO serves bot
 
 Browse usage data: `kubectl exec -n weaviate minio -- mc alias set local http://localhost:9000 aws_access_key aws_secret_key && kubectl exec -n weaviate minio -- mc ls --recursive local/weaviate-usage/`
 
+### With Collection Export (MinIO S3)
+
+```bash
+WEAVIATE_VERSION="1.28.0" COLLECTION_EXPORT=true ./local-k8s.sh setup
+```
+
+Enables the `collectionExport` Helm feature, which sets `EXPORT_ENABLED=true` and `EXPORT_DEFAULT_BUCKET=weaviate-export` in Weaviate. Creates the `weaviate-export` bucket in MinIO automatically.
+
+Collection export uses the backup-s3 module as its S3 storage backend. If `ENABLE_BACKUP=true` is not also set, the backup-s3 module is automatically configured to point to MinIO so collection export can function. Test with:
+
+```bash
+weaviate-cli create export-collection --export_id my-export --backend s3 --wait --json
+weaviate-cli get export-collection --export_id my-export --backend s3 --json
+weaviate-cli cancel export-collection --export_id my-export --backend s3 --json
+```
+
+MinIO buckets used: `weaviate-export/` (export data), `weaviate-backups/` (backup data if `ENABLE_BACKUP=true`).
+
 ### Full-Featured
 
 ```bash
 WORKERS=2 REPLICAS=3 WEAVIATE_VERSION="1.28.0" \
   MODULES="text2vec-transformers,generative-openai" \
-  RBAC=true ENABLE_BACKUP=true S3_OFFLOAD=true \
+  RBAC=true ENABLE_BACKUP=true COLLECTION_EXPORT=true S3_OFFLOAD=true \
   ENABLE_RUNTIME_OVERRIDES=true OBSERVABILITY=true \
   HELM_TIMEOUT="20m" ./local-k8s.sh setup
 ```

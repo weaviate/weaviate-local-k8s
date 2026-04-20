@@ -42,6 +42,7 @@ EXPOSE_PODS=${EXPOSE_PODS:-"true"}
 WEAVIATE_IMAGE_PREFIX=${WEAVIATE_IMAGE_PREFIX:-semitechnologies}
 MODULES=${MODULES:-""}
 ENABLE_BACKUP=${ENABLE_BACKUP:-"false"}
+COLLECTION_EXPORT=${COLLECTION_EXPORT:-"false"}
 S3_OFFLOAD=${S3_OFFLOAD:-"false"}
 USAGE_S3=${USAGE_S3:-"false"}
 HELM_BRANCH=${HELM_BRANCH:-""}
@@ -76,7 +77,7 @@ if [[ $DEBUG == "true" ]]; then
     set -x
 fi
 
-if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]]; then
+if [[ "$ENABLE_BACKUP" == "true" ]] || [[ "$S3_OFFLOAD" == "true" ]] || [[ "$USAGE_S3" == "true" ]] || [[ "$COLLECTION_EXPORT" == "true" ]]; then
     need_minio="true"
 else
     need_minio="false"

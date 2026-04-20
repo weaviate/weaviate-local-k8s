@@ -46,6 +46,10 @@ inputs:
     description: 'Configures S3 compatible backup for Weaviate'
     required: false
     default: 'false'
+  collection-export:
+    description: 'Enables collection export to S3/MinIO via the collectionExport Helm feature'
+    required: false
+    default: 'false'
   s3-offload:
     description: 'Configures S3 tenant offloading'
     required: false
@@ -149,6 +153,7 @@ runs:
         MODULES: ${{ inputs.modules }}
         HELM_BRANCH: ${{ inputs.helm-branch }}
         ENABLE_BACKUP: ${{ inputs.enable-backup }}
+        COLLECTION_EXPORT: ${{ inputs.collection-export }}
         S3_OFFLOAD: ${{ inputs.s3-offload }}
         USAGE_S3 : ${{ inputs.usage-s3 }}
         DELETE_STS: ${{ inputs.delete-sts }}

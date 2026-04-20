@@ -121,11 +121,13 @@ Module images are large. Timeout automatically increases by 1200s.
 
 ```bash
 WORKERS=2 REPLICAS=3 WEAVIATE_VERSION="1.37.0" \
-ENABLE_BACKUP=true \
+COLLECTION_EXPORT=true \
 ./local-k8s.sh setup
 ```
 
-Collection export requires `ENABLE_BACKUP=true` (uses the same MinIO S3 backend as backups). Test with `weaviate-cli`:
+`COLLECTION_EXPORT=true` enables the `collectionExport` Helm feature (`collectionExport.enabled=true`, `EXPORT_DEFAULT_BUCKET=weaviate-export`). MinIO is started automatically and the `weaviate-export` bucket is created.
+
+Collection export uses the backup-s3 module as its S3 backend. If `ENABLE_BACKUP=true` is not also set, the backup-s3 module is automatically configured to point to MinIO (no user action needed). Test with `weaviate-cli`:
 
 ```bash
 weaviate-cli create export-collection --export_id my-export --backend s3 --wait --json

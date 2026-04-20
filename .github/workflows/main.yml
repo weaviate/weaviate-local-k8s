@@ -99,6 +99,7 @@ jobs:
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
         ENABLE_BACKUP: 'true'
+        COLLECTION_EXPORT: 'true'
         USAGE_S3: 'true'
         ENABLE_RUNTIME_OVERRIDES: 'true'
         RBAC: 'true'
@@ -168,6 +169,7 @@ jobs:
             enable-runtime-overrides: ${{ env.ENABLE_RUNTIME_OVERRIDES }}
             modules: ${{ env.MODULES }}
             enable-backup: ${{ env.ENABLE_BACKUP }}
+            collection-export: ${{ env.COLLECTION_EXPORT }}
             values-inline: ${{ env.VALUES_INLINE }}
             observability: 'true'
             rbac: ${{ env.RBAC }}
@@ -274,6 +276,32 @@ jobs:
               if ! echo "$configmap_data" | grep -q "@every 10s"; then
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
+              fi
+              echo "Create a collection for export"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"class": "ExportTest"}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema
+              echo "Insert an object so the export has data"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"class": "ExportTest", "properties": {}}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/objects
+              echo "Create a collection export"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{
+                    "id": "test-collection-export",
+                    "include": ["ExportTest"],
+                    "file_format": "parquet"
+                    }' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3
+              response=$(curl -s -H "Authorization: Bearer admin-key" http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3/test-collection-export)
+              if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "RUNNING"' > /dev/null 2>&1; then
+                echo "The collection export has been started."
+              else
+                echo "The collection export status is not STARTED/RUNNING/SUCCESS or the json output is not the expected."
+                exit 1
               fi
     run-weaviate-local-k8s-which-fails:
       runs-on: ubuntu-latest
@@ -524,12 +552,15 @@ jobs:
               exit 1
             fi
     run-weaviate-local-k8s-backup:
+      needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
       name: Invoke weaviate-local-k8s action with support for backup
       env:
         WORKERS: '1'
         REPLICAS: '5'
-        WEAVIATE_VERSION: '1.26.3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        ENABLE_BACKUP: 'true'
+        COLLECTION_EXPORT: 'true'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -539,7 +570,8 @@ jobs:
           with:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
-            enable-backup: 'true'
+            enable-backup: ${{ env.ENABLE_BACKUP }}
+            collection-export: ${{ env.COLLECTION_EXPORT }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
         - name: Check the configured values
           run: |
@@ -568,13 +600,17 @@ jobs:
               exit 1
             fi
             echo "Create a collection"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{
                   "class": "Article"
                   }' \
               http://localhost:8080/v1/schema
+            echo "Insert an object so backup and export have data"
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
+              -d '{"class": "Article", "properties": {}}' \
+              http://localhost:8080/v1/objects
             echo "Create a backup"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{
                   "id": "test-backup"
                   }' \
@@ -584,6 +620,21 @@ jobs:
               echo "The backup has been started."
             else
               echo "The backup status is not STARTED/SUCCEEDED or the json output is not the expected."
+              exit 1
+            fi
+            echo "Create a collection export"
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
+              -d '{
+                  "id": "test-collection-export",
+                  "include": ["Article"],
+                  "file_format": "parquet"
+                  }' \
+              http://localhost:8080/v1/export/s3
+            response=$(curl -s http://localhost:8080/v1/export/s3/test-collection-export)
+            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "RUNNING"' > /dev/null 2>&1; then
+              echo "The collection export has been started."
+            else
+              echo "The collection export status is not STARTED/RUNNING/SUCCESS or the json output is not the expected."
               exit 1
             fi
     run-weaviate-local-k8s-rbac:
