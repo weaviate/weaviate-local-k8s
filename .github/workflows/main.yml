@@ -278,17 +278,17 @@ jobs:
                   exit 1
               fi
               echo "Create a collection for export"
-              curl -X POST -H "Content-Type: application/json" \
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
                 -d '{"class": "ExportTest"}' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema
               echo "Insert an object so the export has data"
-              curl -X POST -H "Content-Type: application/json" \
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
                 -d '{"class": "ExportTest", "properties": {}}' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/objects
               echo "Create a collection export"
-              curl -X POST -H "Content-Type: application/json" \
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
                 -d '{
                     "id": "test-collection-export",
@@ -600,17 +600,17 @@ jobs:
               exit 1
             fi
             echo "Create a collection"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{
                   "class": "Article"
                   }' \
               http://localhost:8080/v1/schema
             echo "Insert an object so backup and export have data"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{"class": "Article", "properties": {}}' \
               http://localhost:8080/v1/objects
             echo "Create a backup"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{
                   "id": "test-backup"
                   }' \
@@ -623,7 +623,7 @@ jobs:
               exit 1
             fi
             echo "Create a collection export"
-            curl -X POST -H "Content-Type: application/json" \
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
               -d '{
                   "id": "test-collection-export",
                   "include": ["Article"],
