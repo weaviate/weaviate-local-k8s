@@ -20,6 +20,9 @@ spec:
           image: grafana/grafana-image-renderer:latest
           ports:
             - containerPort: 8081
+          env:
+            - name: AUTH_TOKEN
+              value: weaviate-local-k8s-renderer
           resources:
             requests:
               memory: "256Mi"
