@@ -8,6 +8,7 @@ grafana:
     rendering:
       server_url: http://grafana-renderer.monitoring.svc.cluster.local:8081/render
       callback_url: http://prometheus-grafana.monitoring.svc.cluster.local/
+      renderer_token: weaviate-local-k8s-renderer
 
 prometheus:
   enabled: true
