@@ -18,6 +18,9 @@ spec:
       containers:
         - name: grafana-renderer
           image: grafana/grafana-image-renderer:latest
+          env:
+            - name: AUTH_TOKEN
+              value: "weaviate-local-k8s"
           ports:
             - containerPort: 8081
           resources:
