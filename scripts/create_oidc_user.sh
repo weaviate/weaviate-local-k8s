@@ -114,6 +114,14 @@ if [ -z "$user_id" ]; then
     exit 1
 fi
 
+# Build human-readable suffix for namespace / global principal
+attr_suffix=""
+if [ -n "$namespace" ]; then
+    attr_suffix=" (namespace: $namespace)"
+elif [ "$global_principal" = "true" ]; then
+    attr_suffix=" (global operator)"
+fi
+
 # If group is provided, assign user to group
 if [ ! -z ${group+x} ]; then
     # Get group id
@@ -127,10 +135,10 @@ if [ ! -z ${group+x} ]; then
         curl -s -X PUT \
             -H "Authorization: Bearer $TOKEN" \
             "http://keycloak.oidc.svc.cluster.local:9090/admin/realms/weaviate/users/$user_id/groups/$group_id"
-        echo "User $username created and added to group $group"
+        echo "User $username created and added to group $group${attr_suffix}"
     else
-        echo "User $username created but group $group not found"
+        echo "User $username created but group $group not found${attr_suffix}"
     fi
 else
-    echo "User $username created successfully"
+    echo "User $username created successfully${attr_suffix}"
 fi
