@@ -873,7 +873,7 @@ TZEOF
             # Use default OIDC configuration
             helm_values="${helm_values} \
                 --set authentication.oidc.issuer=http://${KEYCLOAK_HOST}:9090/realms/weaviate \
-                --set authentication.oidc.username_claim=email \
+                --set authentication.oidc.username_claim=preferred_username \
                 --set authentication.oidc.groups_claim=groups \
                 --set authentication.oidc.client_id=demo \
                 --set authentication.oidc.skip_client_id_check=false"
