@@ -877,7 +877,7 @@ TZEOF
                 --set authentication.oidc.groups_claim=groups \
                 --set authentication.oidc.client_id=demo \
                 --set authentication.oidc.skip_client_id_check=false"
-            
+
             if [[ $NAMESPACES == "true" ]]; then
                 helm_values="${helm_values} --set authentication.oidc.namespace_claim=weaviate_namespace \
                     --set authentication.oidc.global_principal_claim=weaviate_global_principal"

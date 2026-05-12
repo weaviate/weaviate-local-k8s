@@ -42,8 +42,8 @@ fi
 
 # -n and -G are mutually exclusive
 if [ -n "$namespace" ] && [ "$global_principal" = "true" ]; then
-    echo "Error: -n NAMESPACE and -G are mutually exclusive"
-    show_help
+    echo "Error: -n NAMESPACE and -G are mutually exclusive" >&2
+    exit 1
 fi
 
 # Get admin token
@@ -66,8 +66,7 @@ if [ -n "$namespace" ]; then
     attributes_json="\"weaviate_namespace\": [\"$namespace\"]"
 fi
 if [ "$global_principal" = "true" ]; then
-    [ -n "$attributes_json" ] && attributes_json="$attributes_json, "
-    attributes_json="${attributes_json}\"weaviate_global_principal\": [\"true\"]"
+    attributes_json="\"weaviate_global_principal\": [\"true\"]"
 fi
 
 # Compose final body. Only include "attributes" key if at least one is set,

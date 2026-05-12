@@ -578,12 +578,12 @@
             "protocolMapper": "oidc-usermodel-attribute-mapper",
             "consentRequired": false,
             "config": {
+              "userinfo.token.claim": "true",
               "user.attribute": "weaviate_global_principal",
-              "claim.name": "weaviate_global_principal",
-              "jsonType.label": "boolean",
               "id.token.claim": "true",
               "access.token.claim": "true",
-              "userinfo.token.claim": "true"
+              "claim.name": "weaviate_global_principal",
+              "jsonType.label": "boolean"
             }
           }
         ],

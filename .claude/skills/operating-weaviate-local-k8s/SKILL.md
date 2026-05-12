@@ -185,10 +185,10 @@ Combining `NAMESPACES=true` with `OIDC=true` additionally sets `authentication.o
 
 ```bash
 # Global operator (can manage namespaces, create namespaced DB users, etc.)
-bash scripts/create_oidc_user.sh -u admin@example.com -G
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u admin@example.com -G
 
 # Namespaced user (scoped to namespace "customer1")
-bash scripts/create_oidc_user.sh -u tenant1@example.com -n customer1
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u tenant1@example.com -n customer1
 ```
 
 `-n` and `-G` are mutually exclusive. Users created without either flag are plain authenticated principals with no namespace and no global-operator status. See `references/auth-config.md` for full details.
