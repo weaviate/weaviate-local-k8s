@@ -360,24 +360,32 @@ function is_node_healthy() {
     fi
 }
 
+# Returns 0 if a process is LISTENing on the exact TCP port, 1 otherwise.
+# The port is matched followed by a non-digit (or end of line) so that, e.g.,
+# checking 2114 does not falsely match a listener on 21146.
+function is_port_in_use() {
+    local port=$1
+    lsof -i -n -P | grep LISTEN | grep -qE ":${port}([^0-9]|\$)"
+}
+
 function verify_ports_available() {
     replicas=$1
     echo_green "Verifying ports are available for $replicas Weaviate nodes"
 
     # Check if default ports are available
-    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_PORT"; then
+    if is_port_in_use "$WEAVIATE_PORT"; then
         echo_red "Port $WEAVIATE_PORT is already in use by another process."
         exit 1
     fi
-    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_GRPC_PORT"; then
+    if is_port_in_use "$WEAVIATE_GRPC_PORT"; then
         echo_red "Port $WEAVIATE_GRPC_PORT is already in use by another process."
         exit 1
     fi
-    if lsof -i -n -P | grep LISTEN | grep -q ":$WEAVIATE_METRICS"; then
+    if is_port_in_use "$WEAVIATE_METRICS"; then
         echo_red "Port $WEAVIATE_METRICS is already in use by another process."
         exit 1
     fi
-    if lsof -i -n -P | grep LISTEN | grep -q ":$PROFILER_PORT"; then
+    if is_port_in_use "$PROFILER_PORT"; then
         echo_red "Port $PROFILER_PORT is already in use by another process."
         exit 1
     fi
@@ -386,23 +394,23 @@ function verify_ports_available() {
         # Check if ports are available for each replica
         for i in $(seq 0 $((replicas-1))); do
             # Check Weaviate exposed port
-            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_PORT+i+1))"; then
+            if is_port_in_use "$((WEAVIATE_PORT+i+1))"; then
                 echo_red "Port $((WEAVIATE_PORT+i+1)) is already in use"
                 exit 1
             fi
             # Check Weaviate grpc port
-            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_GRPC_PORT+i+1))"; then
+            if is_port_in_use "$((WEAVIATE_GRPC_PORT+i+1))"; then
                 echo_red "Port $((WEAVIATE_GRPC_PORT+i+1)) is already in use"
                 exit 1
             fi
             # Check metrics port
-            if lsof -i -n -P | grep LISTEN | grep -q ":$((WEAVIATE_METRICS+i+1))"; then
+            if is_port_in_use "$((WEAVIATE_METRICS+i+1))"; then
                 echo_red "Port $((WEAVIATE_METRICS+i+1)) is already in use"
                 exit 1
             fi
 
             # Check profiler port
-            if lsof -i -n -P | grep LISTEN | grep -q ":$((PROFILER_PORT+i+1))"; then
+            if is_port_in_use "$((PROFILER_PORT+i+1))"; then
                 echo_red "Port $((PROFILER_PORT+i+1)) is already in use"
                 exit 1
             fi
