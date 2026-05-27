@@ -955,4 +955,106 @@ jobs:
           run: |
             echo "The deployment should have failed due to port 8080 being in use, but it succeeded"
             exit 1
+    run-weaviate-local-k8s-substring-port:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Verify substring-superset ports do not block setup or forwarding
+      env:
+        WORKERS: '1'
+        REPLICAS: '2'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        EXPOSE_PODS: 'true'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Occupy ports that contain Weaviate ports as substrings
+          run: |
+            # A buggy unanchored match (grep ":2114") treats a Weaviate port as
+            # taken whenever a listener's port string starts with it, e.g. :21146
+            # begins with :2114. Occupy several such superset ports. Only the
+            # metrics (211xx) and profiler (606xx) families are collidable: an
+            # HTTP (8080x) or gRPC (50051x) superset would exceed the 65535 max.
+            #   21146 -> 2114 (weaviate-1 metrics: per-pod loop check + forward)
+            #   60616 -> 6061 (weaviate-0 profiler: per-pod loop check + forward)
+            #   21126 -> 2112 (default metrics: pre-flight default-port check)
+            # That an exact listener *does* block setup is covered separately by
+            # run-weaviate-local-k8s-port-in-use.
+            PIDS=""
+            for p in 21146 60616 21126; do
+              python3 -m http.server "$p" --bind 127.0.0.1 &
+              PIDS="$PIDS $!"
+            done
+            sleep 2
+            for p in 21146 60616 21126; do
+              if ! lsof -i :"$p" | grep -q LISTEN; then
+                echo "Failed to occupy port $p"
+                exit 1
+              fi
+            done
+            echo "SQUAT_PIDS=$PIDS" >> $GITHUB_ENV
+        - name: Deploy weaviate-local-k8s (must succeed despite the listeners)
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: ${{ env.EXPOSE_PODS }}
+        - name: Verify the cluster came up and substring ports were forwarded
+          run: |
+            set -ex
+            # Setup succeeding at all proves the pre-flight check did not falsely
+            # flag 2112/2114/6061 because of the :21126/:21146/:60616 listeners.
+            for retry in {1..30}; do
+              if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/nodes | grep -q 200; then
+                break
+              fi
+              echo "Weaviate not ready, retry $retry/30"
+              sleep 2
+              if [[ $retry -eq 30 ]]; then
+                echo "ERROR: cluster did not come up"
+                exit 1
+              fi
+            done
+            NODE_COUNT=$(curl -s http://127.0.0.1:8080/v1/nodes | jq '.nodes | length')
+            if [[ "$NODE_COUNT" -ne 2 ]]; then
+              echo "ERROR: expected 2 nodes, found $NODE_COUNT"
+              exit 1
+            fi
+
+            # weaviate-1 metrics (:2114) must be forwarded, not skipped due to
+            # the :21146 listener.
+            for retry in {1..30}; do
+              if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:2114/metrics | grep -q 200; then
+                echo "Metrics port 2114 is forwarded and reachable"
+                break
+              fi
+              echo "Metrics port 2114 not ready, retry $retry/30"
+              sleep 2
+              if [[ $retry -eq 30 ]]; then
+                echo "ERROR: Metrics port 2114 not forwarded (substring match regression?)"
+                lsof -i -n -P | grep LISTEN | grep kubectl-r || true
+                exit 1
+              fi
+            done
+            # The listener on :2114 must be kubectl-relay, not a squatter.
+            if ! lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -qE ":2114([^0-9]|$)"; then
+              echo "ERROR: No kubectl-relay listener on exactly :2114"
+              lsof -i -n -P | grep LISTEN | grep kubectl-r || true
+              exit 1
+            fi
+
+            # weaviate-0 profiler (:6061) must be forwarded, not skipped due to
+            # the :60616 listener.
+            if ! nc -z -w 5 127.0.0.1 6061; then
+              echo "ERROR: profiler port 6061 not forwarded"
+              lsof -i -n -P | grep LISTEN | grep kubectl-r || true
+              exit 1
+            fi
+        - name: Stop the port-occupying servers
+          if: always()
+          run: |
+            for pid in ${SQUAT_PIDS:-}; do
+              kill "$pid" || true
+            done
 
