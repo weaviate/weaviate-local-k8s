@@ -670,12 +670,12 @@ function port_forward_weaviate_pods() {
         local log_file=$6          # log file
 
         # Already listening via kubectl-relay?
-        if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${local_port}"; then
+        if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -qE ":${local_port}([^0-9]|$)"; then
             return 0
         fi
 
         # If the port is used by something else, skip
-        if lsof -i -n -P | grep LISTEN | grep -q ":${local_port}"; then
+        if is_port_in_use "$local_port"; then
             echo_yellow "Port ${local_port} is in use by a non-relay process; skipping"
             FORWARD_SKIPPED_ENDPOINTS="${FORWARD_SKIPPED_ENDPOINTS} ${resource_name}:${target_port}->${local_port}"
             return 1
@@ -685,7 +685,7 @@ function port_forward_weaviate_pods() {
 
         # Wait briefly until port is listening, retrying a few times
         for _ in {1..10}; do
-            if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -q ":${local_port}"; then
+            if lsof -i -n -P | grep LISTEN | grep kubectl-r | grep -qE ":${local_port}([^0-9]|$)"; then
                 return 0
             fi
             sleep 0.5

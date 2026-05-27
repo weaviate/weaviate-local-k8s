@@ -18,6 +18,7 @@ Test coverage map, adding tests, and quality standards.
 | Expose pods | `run-weaviate-local-k8s-expose-pods` | Per-pod port forwarding, pod restart reconnection |
 | OIDC | `run-weaviate-local-k8s-oidc` | Keycloak OIDC, user creation, token auth |
 | Port in use | `run-weaviate-local-k8s-port-in-use` | Port availability check fails when port occupied |
+| Substring port | `run-weaviate-local-k8s-substring-port` | Superset ports (e.g. 21146 vs 2114, 60616 vs 6061) do not block the pre-check or skip forwarding. Exact-port blocking is covered by `run-weaviate-local-k8s-port-in-use` |
 
 ## Standard Verification Checks
 
