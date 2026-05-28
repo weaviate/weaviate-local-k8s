@@ -283,30 +283,82 @@ jobs:
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
               fi
-              echo "Create a collection for export"
+              # On a namespaces-enabled cluster, schema mutations are rejected for
+              # global/static principals with "must be namespaced": only a
+              # namespaced user can create a collection, which is then stored
+              # qualified as "<namespace>:<Collection>". Collection export, by
+              # contrast, is an operator action that runs as the admin-key root
+              # user against the qualified name. So: create the collection with a
+              # namespaced user's token, but run the export as admin-key.
+              NS=exportns
+              NS_USER=export-oidc
+              # The OIDC principal is the email claim (username_claim: email) and
+              # create_oidc_user.sh sets the email to "<user>@gmail.com".
+              NS_PRINCIPAL="${NS_USER}@gmail.com"
+              echo "Register the namespace (home_node is optional; auto-assigned)"
+              curl --fail-with-body -X POST -H "Authorization: Bearer admin-key" \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/namespaces/$NS
+              echo "Create the namespaced OIDC user"
+              bash ./scripts/create_oidc_user.sh -u $NS_USER -n $NS
+              echo "Create a role granting collection permissions"
+              # Built-in admin/viewer roles cannot be assigned to namespaced users,
+              # so grant the needed permissions through a custom role.
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
-                -d '{"class": "ExportTest"}' \
-                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema
-              echo "Insert an object so the export has data"
+                -d '{"name":"exportns-admin","permissions":[
+                      {"action":"create_collections","collections":{"collection":"*"}},
+                      {"action":"read_collections","collections":{"collection":"*"}},
+                      {"action":"create_data","data":{"collection":"*"}},
+                      {"action":"read_data","data":{"collection":"*"}}]}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/authz/roles
+              echo "Assign the role to the namespace-qualified principal"
+              # Role assignment to namespaced users requires the qualified id
+              # "<namespace>:<principal>".
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
-                -d '{"class": "ExportTest", "properties": {}}' \
+                -d '{"roles":["exportns-admin"]}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/authz/users/$NS:$NS_PRINCIPAL/assign
+              echo "Fetch the namespaced user's OIDC token"
+              NS_TOKEN=$(bash ./scripts/get_user_token.sh -u $NS_USER)
+              echo "Create a collection for export (namespaced user, short name)"
+              # Namespace and role propagation are asynchronous, so retry until
+              # both the namespace exists (401 clears) and the role applies (403
+              # clears) and the create returns 200.
+              code=""
+              for i in $(seq 1 15); do
+                code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+                  -H "Authorization: Bearer $NS_TOKEN" \
+                  -d '{"class": "ExportTest"}' \
+                  http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema)
+                if [[ "$code" == "200" ]]; then break; fi
+                echo "namespaced collection create not ready yet (HTTP $code), retry $i/15"
+                sleep 2
+              done
+              if [[ "$code" != "200" ]]; then
+                echo "Error: namespaced collection create failed (HTTP $code)"
+                exit 1
+              fi
+              echo "Insert an object so the export has data (operator, qualified name)"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"class": "exportns:ExportTest", "properties": {}}' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/objects
-              echo "Create a collection export"
+              echo "Create a collection export (operator, qualified name)"
+              # The export API is not namespace-aware, so include must reference
+              # the qualified collection name.
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
                 -d '{
                     "id": "test-collection-export",
-                    "include": ["ExportTest"],
+                    "include": ["exportns:ExportTest"],
                     "file_format": "parquet"
                     }' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3
               response=$(curl -s -H "Authorization: Bearer admin-key" http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3/test-collection-export)
-              if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "RUNNING"' > /dev/null 2>&1; then
+              if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "TRANSFERRING"' > /dev/null 2>&1; then
                 echo "The collection export has been started."
               else
-                echo "The collection export status is not STARTED/RUNNING/SUCCESS or the json output is not the expected."
+                echo "The collection export status is not STARTED/TRANSFERRING/SUCCESS or the json output is not the expected."
                 exit 1
               fi
     run-weaviate-local-k8s-which-fails:
@@ -637,10 +689,10 @@ jobs:
                   }' \
               http://localhost:8080/v1/export/s3
             response=$(curl -s http://localhost:8080/v1/export/s3/test-collection-export)
-            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "RUNNING"' > /dev/null 2>&1; then
+            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCESS" or .status == "TRANSFERRING"' > /dev/null 2>&1; then
               echo "The collection export has been started."
             else
-              echo "The collection export status is not STARTED/RUNNING/SUCCESS or the json output is not the expected."
+              echo "The collection export status is not STARTED/TRANSFERRING/SUCCESS or the json output is not the expected."
               exit 1
             fi
     run-weaviate-local-k8s-rbac:
@@ -955,8 +1007,8 @@ jobs:
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
             # rejects all requests with 422 (not 404). Accept either.
             graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
-            if [[ "$graphql_status" -ne 404 && "$graphql_status" -ne 422 ]]; then
-              echo "Error: GraphQL endpoint should be disabled (expected 404 or 422), got $graphql_status"
+            if [[ "$graphql_status" -ne 410 ]]; then
+              echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
               exit 1
             fi
             namespaces_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" http://127.0.0.1:8080/v1/namespaces)
@@ -995,8 +1047,8 @@ jobs:
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
             # rejects all requests with 422 (not 404). Accept either.
             graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
-            if [[ "$graphql_status" -ne 404 && "$graphql_status" -ne 422 ]]; then
-              echo "Error: GraphQL endpoint should be disabled (expected 404 or 422), got $graphql_status"
+            if [[ "$graphql_status" -ne 410 ]]; then
+              echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
               exit 1
             fi
             # Create a global operator and a namespaced user via the helper
