@@ -844,7 +844,18 @@ jobs:
             # Force delete pod weaviate-2
             kubectl delete pod weaviate-2 -n weaviate --force --grace-period=0
 
-            # Wait for pod to be recreated
+            # Wait for the StatefulSet to recreate the pod before waiting on
+            # readiness. --force --grace-period=0 removes the pod object
+            # instantly, so it can be briefly absent and
+            # `kubectl wait --for=condition=ready` would error out with
+            # "NotFound" instead of waiting for it to reappear.
+            for i in {1..30}; do
+              kubectl get pod weaviate-2 -n weaviate >/dev/null 2>&1 && break
+              echo "weaviate-2 not recreated yet, retry $i/30"
+              sleep 2
+            done
+
+            # Wait for pod to be ready
             kubectl wait --for=condition=ready pod/weaviate-2 -n weaviate --timeout=3m
 
             echo "Wait for Weaviate to be ready"
@@ -1005,7 +1016,7 @@ jobs:
           run: |
             set -x
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
-            # rejects all requests with 422 (not 404). Accept either.
+            # rejects all requests with 410.
             graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
             if [[ "$graphql_status" -ne 410 ]]; then
               echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
@@ -1045,7 +1056,7 @@ jobs:
             set -x
             # Sanity: GraphQL must be off when namespaces are on.
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
-            # rejects all requests with 422 (not 404). Accept either.
+            # rejects all requests with 410.
             graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
             if [[ "$graphql_status" -ne 410 ]]; then
               echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
