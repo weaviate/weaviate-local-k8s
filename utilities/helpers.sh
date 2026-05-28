@@ -882,7 +882,7 @@ TZEOF
                 helm_values="${helm_values} --set authentication.oidc.namespace_claim=weaviate_namespace \
                     --set authentication.oidc.global_principal_claim=weaviate_global_principal \
                     --set authorization.rbac.root_users={admin-user,admin-oidc} \
-                    --set authorization.rbac.root_groups={/RootGroup}
+                    --set authorization.rbac.root_groups={/RootGroup}"
             fi
         fi
     fi
