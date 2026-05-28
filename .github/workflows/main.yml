@@ -95,7 +95,8 @@ jobs:
         WEAVIATE_GRPC_PORT: '50052'
         MCP: 'true'
         MCP_WRITE_ACCESS: 'true'
-        HELM_BRANCH: 'main'
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
         ENABLE_BACKUP: 'true'
@@ -107,6 +108,7 @@ jobs:
         DYNAMIC_USERS: 'true'
         AUTH_CONFIG: '/tmp/rbac-config.yaml'
         EXPOSE_PODS: 'true'
+        NAMESPACES: 'true'
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -145,11 +147,14 @@ jobs:
                 groups_claim: groups
                 client_id: demo
                 skip_client_id_check: false
+                namespace_claim: weaviate_namespace
+                global_principal_claim: weaviate_global_principal
             authorization:
               rbac:
                 enabled: true
                 root_users:
                   - admin
+                  - admin-oidc
               admin_list:
                 enabled: false
             EOF
@@ -180,6 +185,7 @@ jobs:
             expose-pods: ${{ env.EXPOSE_PODS }}
             mcp: ${{ env.MCP }}
             mcp-write-access: ${{ env.MCP_WRITE_ACCESS }}
+            namespaces: ${{ env.NAMESPACES }}
         - name: Check the configured values
           run: |
               set -ex
@@ -927,12 +933,9 @@ jobs:
       env:
         WORKERS: '1'
         REPLICAS: '1'
-        # ============================================================
-        # TODO(REMOVE BEFORE MERGE): pinned to a dev image because the
-        # namespaces feature is not yet in a released Weaviate version.
-        # Restore: WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
-        # ============================================================
-        WEAVIATE_VERSION: '1.38.0-dev-f334a57'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -943,18 +946,20 @@ jobs:
             workers: ${{ env.WORKERS }}
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            rbac: 'true'
             namespaces: 'true'
+            helm-branch: ${{ env.HELM_BRANCH }} # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
         - name: Verify namespaces are enabled and GraphQL is disabled
           run: |
             set -x
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
             # rejects all requests with 422 (not 404). Accept either.
-            graphql_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
+            graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
             if [[ "$graphql_status" -ne 404 && "$graphql_status" -ne 422 ]]; then
               echo "Error: GraphQL endpoint should be disabled (expected 404 or 422), got $graphql_status"
               exit 1
             fi
-            namespaces_status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/namespaces)
+            namespaces_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" http://127.0.0.1:8080/v1/namespaces)
             if [[ "$namespaces_status" -ne 200 ]]; then
               echo "Error: Namespaces endpoint should be reachable (expected 200), got $namespaces_status"
               exit 1
@@ -966,12 +971,9 @@ jobs:
       env:
         WORKERS: '1'
         REPLICAS: '1'
-        # ============================================================
-        # TODO(REMOVE BEFORE MERGE): pinned to a dev image because the
-        # namespaces feature is not yet in a released Weaviate version.
-        # Restore: WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
-        # ============================================================
-        WEAVIATE_VERSION: '1.38.0-dev-f334a57'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
       steps:
         - name: Checkout repository
           uses: actions/checkout@v2
@@ -983,14 +985,16 @@ jobs:
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
             namespaces: 'true'
+            rbac: 'true'
             oidc: 'true'
+            helm-branch: ${{ env.HELM_BRANCH }} # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
         - name: Verify OIDC + namespaces wiring end-to-end
           run: |
             set -x
             # Sanity: GraphQL must be off when namespaces are on.
             # DISABLE_GRAPHQL=true keeps the route registered but the handler
             # rejects all requests with 422 (not 404). Accept either.
-            graphql_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
+            graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
             if [[ "$graphql_status" -ne 404 && "$graphql_status" -ne 422 ]]; then
               echo "Error: GraphQL endpoint should be disabled (expected 404 or 422), got $graphql_status"
               exit 1

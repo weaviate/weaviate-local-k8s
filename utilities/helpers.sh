@@ -880,7 +880,9 @@ TZEOF
 
             if [[ $NAMESPACES == "true" ]]; then
                 helm_values="${helm_values} --set authentication.oidc.namespace_claim=weaviate_namespace \
-                    --set authentication.oidc.global_principal_claim=weaviate_global_principal"
+                    --set authentication.oidc.global_principal_claim=weaviate_global_principal \
+                    --set authorization.rbac.root_users={admin-user,admin-oidc} \
+                    --set authorization.rbac.root_groups={/RootGroup}
             fi
         fi
     fi
@@ -909,7 +911,7 @@ TZEOF
     fi
 
     if [[ $NAMESPACES == "true" ]]; then
-        helm_values="${helm_values} --set env.NAMESPACES_ENABLED=true --set env.DISABLE_GRAPHQL=true"
+        helm_values="${helm_values} --set namespaces.enabled=true"
     fi
 
     echo "$helm_values"
