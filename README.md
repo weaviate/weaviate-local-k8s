@@ -197,6 +197,59 @@ WORKERS=2 WEAVIATE_VERSION="1.25" REPLICAS=3 ./local-k8s.sh upgrade --local-imag
 
 Make sure your images are present in your environment, as otherwise the script will fail saying it can't locate those images locally. Simply run `docker pull semitechnologies/weaviate:${WEAVIATE_VERSION}`.
 
+### Reproducing CI jobs locally
+
+CI jobs in other repos (weaviate-chaos-engineering, weaviate-e2e-tests, weaviate-cli, …) use
+this action across **many interleaved steps** — e.g. setup an old version → run tests →
+upgrade → run tests → downgrade — with `${{ }}` expressions, inline `auth-config`/
+`values-override`, and version-resolution actions. Unlike docker-based jobs (one committed
+script you can run anywhere), there is no single artifact a developer can run to reproduce
+such a job locally; each `uses:` block has to be hand-translated to the right `local-k8s.sh`
+env vars and command, with the test steps interleaved by hand.
+
+To remove that friction, the repo ships:
+
+- **`utilities/reproduce-lib.sh`** — deterministic helpers that translate a
+  `weaviate/weaviate-local-k8s` action step into a local `local-k8s.sh` call (the
+  action-input → env-var mapping, the action's input defaults, writing `values-override.yaml`,
+  bootstrapping a pinned checkout, the setup retry loop, and teardown-on-exit).
+- **The `reproducing-ci-jobs` Claude Code skill** (`.claude/skills/reproducing-ci-jobs/`) —
+  reads an existing, **unchanged** workflow + job, sets aside CI-only steps (checkout, docker
+  login, telemetry, artifact upload…), translates the `weaviate-local-k8s` steps, carries the
+  interleaved `run:`/test steps, and emits a deterministic, re-runnable bash script. It also
+  **recurses into consumer-repo composite actions** (e.g. e2e's `version-change` /
+  `run-local-k8s-test`, where the whole job is the composite), including their `shell: python`
+  steps and multi-line `$GITHUB_ENV` values.
+- **Worked examples** —
+  [`examples/reproduce/rbac-upgrade-journey.sh`](examples/reproduce/rbac-upgrade-journey.sh)
+  reproduces the chaos `rbac-upgrade-journey` job (direct action steps: setup → roles/data →
+  upgrade → checks → rolling restart → downgrade), and
+  [`examples/reproduce/upgrade-cluster.sh`](examples/reproduce/upgrade-cluster.sh) reproduces
+  the e2e `upgrade-tests` job *through* its `version-change` composite action.
+
+Generate a script for a job (in Claude Code): invoke `/reproducing-ci-jobs` and point it at the
+workflow file and job id. Then run the result:
+
+```bash
+# Non-interactive: supply the values that aren't in the workflow YAML (versions, etc.)
+LK8S_INPUTS=./reproduce/<job>.inputs ./reproduce/<job>.sh
+
+# Or run interactively — it prompts for any missing input.
+./reproduce/<job>.sh
+```
+
+**Debugging a failing job:** by default, if a step fails the cluster is **left running** so
+you can reproduce and inspect the same failure the CI job hit (the script prints how to reach
+it and how to clean up). On success it tears down. Override with `LK8S_KEEP=true` (always
+keep) or `LK8S_KEEP=false` (always clean). Other knobs: `LK8S_MAX_RETRIES=1` fails fast;
+`WEAVIATE_LOCAL_K8S_DIR=<checkout>` uses a local working copy instead of cloning a pinned ref.
+
+> Why not [`act`](https://github.com/nektos/act)? `act` runs workflow steps inside a runner
+> container; this tool brings up a **Kind** cluster, which `act` can only start via the host
+> Docker socket (sibling containers) — and then the `kubectl-relay` port-forwards bind to the
+> *container's* `localhost`, so you can't reach or debug the cluster from your host. Running
+> the steps natively on the host (where `local-k8s.sh` already works) avoids that.
+
 ### Invocation
 
 This action is invoked from a GitHub Actions workflow using the uses keyword followed by the action's repository and version. Input values can be provided using the with keyword within the workflow YAML file.

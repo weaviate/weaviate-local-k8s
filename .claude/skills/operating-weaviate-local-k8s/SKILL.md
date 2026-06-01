@@ -373,3 +373,10 @@ Note: Helm `--set` flags always override `-f` files regardless of position on th
 - **Observability**: See [references/observability-config.md](references/observability-config.md) for Prometheus, Grafana, Dash0, and debugging
 - **Troubleshooting**: See [references/troubleshooting.md](references/troubleshooting.md) for common issues and solutions
 - **CLI integration**: See [references/cli-integration.md](references/cli-integration.md) for weaviate-cli configuration
+
+## Related skills
+
+- **Reproducing a CI job locally**: To recreate the exact cluster setup (and interleaved
+  steps) of a GitHub Actions job that uses the `weaviate/weaviate-local-k8s` action, use the
+  `reproducing-ci-jobs` skill — it translates the job's steps into `local-k8s.sh` commands
+  for you.

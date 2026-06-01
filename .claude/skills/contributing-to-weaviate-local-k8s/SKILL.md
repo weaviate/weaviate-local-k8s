@@ -159,7 +159,13 @@ In `use_local_images()`, add case block:
 - [ ] Works with RBAC enabled (auth-aware)
 - [ ] Works with EXPOSE_PODS=true and false
 - [ ] Documentation updated in skills
+- [ ] New action.yml input also added to `_lk8s_action_defaults` in `utilities/reproduce-lib.sh` (keeps local CI-job reproduction faithful)
 ```
+
+**Reproducing CI jobs locally**: `utilities/reproduce-lib.sh` + the `reproducing-ci-jobs`
+skill turn a workflow job that uses this action into a runnable local script. `reproduce-lib.sh`
+mirrors `action.yml`'s input→env mapping and **input defaults**, so changes to `action.yml`
+inputs must be reflected there too (see the Skill Maintenance note in the repo `CLAUDE.md`).
 
 ## Detailed References
 

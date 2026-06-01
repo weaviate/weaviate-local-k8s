@@ -1,0 +1,14 @@
+# Inputs for rbac-upgrade-journey.sh — values not derivable from the workflow YAML.
+# Use with: LK8S_INPUTS=./rbac-upgrade-journey.inputs ./rbac-upgrade-journey.sh
+# Format: KEY=value (one per line). Anything omitted here is prompted for interactively.
+
+# Workflow input `weaviate_version` — the target/preview version under test.
+WEAVIATE_VERSION=1.32.0
+# get-previous-version action output — the previous minor the job sets up first.
+WEAVIATE_INITIAL_VERSION=1.31.0
+# Workflow input `lsm_access_strategy`.
+LSM_ACCESS_STRATEGY=mmap
+# Workflow input `async_indexing` (the job defaults this to 'true' when unset).
+ASYNC_INDEXING=true
+# Path to your weaviate-chaos-engineering checkout (where apps/... live).
+CHAOS_REPO=/path/to/weaviate-chaos-engineering

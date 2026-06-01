@@ -1,0 +1,15 @@
+# Inputs for upgrade-cluster.sh — values not derivable from the workflow YAML.
+# Use with: LK8S_INPUTS=./upgrade-cluster.inputs ./upgrade-cluster.sh
+# Format: KEY=value (one per line). Anything omitted is prompted for interactively.
+
+# Job input `weaviate_version`, resolved (the target tag deployed in the upgrade step).
+WEAVIATE_VERSION=1.32.0
+# real-version-in-tag output — the target's real semver (for the raft<1.25 comparison).
+# Usually identical to WEAVIATE_VERSION when that is already a plain semver.
+REAL_WEAVIATE_VERSION=1.32.0
+# get-previous-version output — the previous minor the cluster is first deployed with.
+WEAVIATE_INITIAL_VERSION=1.31.0
+# Job input `number_nodes` (becomes WORKERS and REPLICAS).
+NUMBER_NODES=3
+# Path to your weaviate-e2e-tests checkout (where tests/upgrade/... and requirements.txt live).
+E2E_REPO=/path/to/weaviate-e2e-tests

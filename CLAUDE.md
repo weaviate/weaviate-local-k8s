@@ -4,7 +4,7 @@ Tool for deploying and managing local Weaviate clusters in Kind (Kubernetes in D
 
 ## Skills
 
-This repository includes two Claude Code skills in `.claude/skills/`:
+This repository includes three Claude Code skills in `.claude/skills/`:
 
 ### operating-weaviate-local-k8s
 
@@ -28,6 +28,19 @@ Contributor and reviewer skill with expert knowledge of the codebase. Covers bas
 
 Invoke: `/contributing-to-weaviate-local-k8s`
 
+### reproducing-ci-jobs
+
+Reproduces a GitHub Actions CI job that uses the `weaviate/weaviate-local-k8s` action on your
+laptop. Reads an existing, unchanged workflow + job, sets aside CI-only steps, translates the
+`weaviate-local-k8s` steps into `local-k8s.sh` calls (via `utilities/reproduce-lib.sh`),
+carries the interleaved test steps, and emits a deterministic, re-runnable bash script. Use
+when you need to:
+
+- Debug or rerun a chaos-engineering / e2e-tests / weaviate-cli k8s job locally
+- Get a cluster into the exact state a CI job sets up, without hand-translating each step
+
+Invoke: `/reproducing-ci-jobs`
+
 ## Quick Start
 
 ```bash
@@ -47,6 +60,8 @@ curl localhost:8080/v1/meta
 |------|---------|
 | `local-k8s.sh` | Main entry point (setup/upgrade/clean) |
 | `utilities/helpers.sh` | All helper functions |
+| `utilities/reproduce-lib.sh` | Deterministic helpers for reproducing CI jobs locally (used by generated repro scripts) |
+| `examples/reproduce/` | Worked repro scripts generated from real CI jobs |
 | `action.yml` | GitHub Actions composite action |
 | `.github/workflows/main.yml` | CI test matrix |
 | `scripts/` | OIDC helper scripts |
@@ -63,6 +78,6 @@ curl localhost:8080/v1/meta
 5. **New service (like Dash0/Keycloak)**: Update `references/observability-config.md` or relevant reference
 6. **Code architecture changes**: Update `contributing-to-weaviate-local-k8s/references/architecture.md`
 7. **New CI test**: Update `references/testing-quality.md` (coverage map)
-8. **New action.yml input**: Update `references/github-actions.md`
+8. **New action.yml input**: Update `references/github-actions.md`, and — so CI jobs using it can still be reproduced locally — the `_lk8s_action_defaults` map in `utilities/reproduce-lib.sh` plus the mapping table in `reproducing-ci-jobs/references/action-input-mapping.md`
 
 This ensures the skills stay accurate and agents always have current context.
