@@ -102,7 +102,9 @@ run_pytest() {  # $1 = marker phase (pre_upgrade/post_upgrade), $2 = junit xml
 }
 
 # --- version-change: Install Dependencies ---------------------------------------------
-( cd "$E2E" && python -m pip install --upgrade pip && pip install -r requirements.txt )
+# Into a dedicated venv (activated for every python/pytest step below) rather than the active
+# global/pyenv env — CI gets a clean runner; locally this avoids corrupting it (see lk8s_pip_install).
+lk8s_pip_install "$E2E/requirements.txt"
 
 # --- version-change: Deploy Initial Cluster (weaviate-local-k8s@v2) --------------------
 write_values_override

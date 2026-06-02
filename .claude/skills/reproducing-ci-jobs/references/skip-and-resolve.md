@@ -10,7 +10,7 @@ leaving a `# skipped: <action> (CI-only)` comment so the omission is visible:
 | `actions/checkout@*` | The consumer repo is already checked out locally. | — |
 | `docker/login-action@*` | Registry auth. | `docker login` once, beforehand, if pulling private images. |
 | `catchpoint/workflow-telemetry-action`, `dev-hato/actions-workflow-metrics` | CI telemetry. | — |
-| `ubicloud/setup-python`, `actions/setup-python` | Python provisioning. | Use your local venv / `pip3`. |
+| `ubicloud/setup-python`, `actions/setup-python` | Python provisioning. | The venv `lk8s_pip_install` creates (see "Python dependency steps"). |
 | `insightsengineering/disk-space-reclaimer` | Frees runner disk. | — |
 | `weaviate/github-common-actions/.github/actions/capture-logs` (stern) | Ships pod logs as artifacts. | `kubectl logs` if you need them. |
 | `actions/upload-artifact@*` | Uploads logs/results. | Files stay on disk locally. |
@@ -76,6 +76,26 @@ PY
 )
 ```
 
+### Python dependency steps (`pip install`)
+A `run:` step that installs python deps — `pip install -r requirements.txt`, often with
+`--ignore-installed` — must **not** be carried verbatim. On the throwaway CI runner it is
+harmless; locally it installs into whatever interpreter is active (commonly a shared
+global/pyenv env). With `--ignore-installed`, pip layers the pinned version on top of a
+different pre-existing one *without uninstalling it*, producing a corrupted mixed install
+(e.g. `ImportError: cannot import name 'ConnectionType' from 'weaviate.connect.v4'`). A stray
+`.python-version` can also point at the wrong interpreter.
+
+Translate it to `lk8s_pip_install`, which installs into a dedicated venv and activates it for
+the rest of the script (clean-runner semantics):
+```bash
+# CI:  cd apps/foo && pip3 install --ignore-installed -r requirements.txt
+lk8s_pip_install "$REPO/apps/foo/requirements.txt"        # -r for files; bare specs allowed too
+```
+Every later `python3 …`/`pytest` step (including those in `( cd … && … )` subshells) then runs
+in the venv. Knobs: `LK8S_VENV` (location), `LK8S_PYTHON` (base interpreter, e.g. `python3.12`),
+`LK8S_VENV_RECREATE=true` (rebuild from scratch). Drop the `--ignore-installed` flag — in a
+clean venv pip's normal resolver replaces versions cleanly.
+
 ### `docker-config`
 Steps often pass `docker-config: /home/runner/.docker/config.json` (runner path for private
 registry pulls in Kind). **Omit it locally** — the path doesn't exist and the action default
@@ -111,8 +131,9 @@ bind it as a variable.
 - Skip: checkout, docker/login, telemetry, upload-artifact.
 - Resolve: `WEAVIATE_VERSION` (input), `WEAVIATE_INITIAL_VERSION` (get-previous-version),
   `lsm_access_strategy` + `async_indexing` (inputs, used inside `VALUES_OVERRIDE`).
-- Carry: `pip3 install`, the three `cat > /tmp/rbac_config.yaml` heredocs, all
-  `python3 …` role/data checks, `./scripts/restart_and_wait.sh`.
+- Translate the `pip3 install` step → `lk8s_pip_install` (isolated venv).
+- Carry: the three `cat > /tmp/rbac_config.yaml` heredocs, all `python3 …` role/data checks,
+  `./scripts/restart_and_wait.sh`.
 - Translate: the 3 `@v2` steps → `lk8s_weaviate setup/upgrade/upgrade` with rbac + auth-config
   + values-override.
 - Full generated artifact: [`examples/reproduce/rbac-upgrade-journey.sh`](../../../../examples/reproduce/rbac-upgrade-journey.sh).

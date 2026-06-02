@@ -54,8 +54,10 @@ EOF
 }
 
 # --- Step: Install python dependencies ------------------------------------------------
-lk8s_log "Installing python deps for rbac-upgrade-journey"
-( cd "$CHAOS/apps/rbac-upgrade-journey" && pip3 install --ignore-installed -r requirements.txt )
+# CI runs `pip3 install --ignore-installed -r requirements.txt` on a throwaway runner. Locally
+# that can corrupt whatever global/pyenv env is active, so install into a dedicated venv and
+# activate it for every python3 step below (see lk8s_pip_install).
+lk8s_pip_install "$CHAOS/apps/rbac-upgrade-journey/requirements.txt"
 
 # --- Step: Generate RBAC config file (static api keys) --------------------------------
 cat > "$RBAC_CONFIG" <<EOF

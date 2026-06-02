@@ -47,7 +47,7 @@ version-resolution, secrets, composite-action, and matrix guidance.
 | Step kind | Action |
 |-----------|--------|
 | `uses: weaviate/weaviate-local-k8s@*` | **Translate** → `lk8s_weaviate "$LK8S" <operation> key=value …` using the step's `with:` (keys are the kebab-case inputs verbatim). Inline `values-override` → `lk8s_values_override`. `auth-config` stays a file path. `values-inline` passes through verbatim. |
-| `run:` (any `shell:`) | **Carry verbatim**, in order. Wrap in `( cd <working-directory or repo subdir> && … )`. Expand `${{ }}`. Turn `$GITHUB_ENV`/`$GITHUB_OUTPUT` writes into plain shell variables (see "Non-bash shells & GITHUB_ENV" below). A non-bash `shell:` (e.g. `shell: python`) must run with that interpreter — reproduce its logic and capture what it writes. |
+| `run:` (any `shell:`) | **Carry verbatim**, in order. Wrap in `( cd <working-directory or repo subdir> && … )`. Expand `${{ }}`. Turn `$GITHUB_ENV`/`$GITHUB_OUTPUT` writes into plain shell variables (see "Non-bash shells & GITHUB_ENV" below). A non-bash `shell:` (e.g. `shell: python`) must run with that interpreter — reproduce its logic and capture what it writes. A dependency-install step (`pip install -r …`) → `lk8s_pip_install <reqs>` (isolated venv — see "Python deps → isolated venv" below), **not** a raw `pip install`. |
 | local composite `uses: ./.github/actions/*` | **Recurse and inline** (see "Composite actions that ARE the job"). Read that action's `action.yml`, map the calling step's `with:` → the composite's `inputs.*`, then classify the composite's own steps with this same table — they often contain the `weaviate-local-k8s` steps, nested composites, `$GITHUB_ENV` writes, and the pytest steps. |
 | version-resolution `uses:` (`get-latest-weaviate-version`, `get-previous-version`, `real-version-in-tag`) | **Resolve to a value** via `lk8s_input` and bind to the variable later steps read (e.g. `WEAVIATE_INITIAL_VERSION`). |
 | CI-only `uses:` (checkout, docker/login, telemetry, setup-python, disk-space-reclaimer, capture-logs/stern, upload-artifact, pytest-results) | **Skip** with a `# skipped: <action> (CI-only)` comment. |
@@ -71,6 +71,17 @@ version-resolution, secrets, composite-action, and matrix guidance.
 > shell vars: single-line `echo "VAR=value" >> $GITHUB_ENV`, and multi-line
 > `echo "VAR<<EOF" >> $GITHUB_ENV; …; echo "EOF" >> $GITHUB_ENV` (used for `VALUES_OVERRIDE`) →
 > a heredoc-assigned var, then pass it through `lk8s_values_override`.
+
+> **Python deps → isolated venv.** A CI "Install python dependencies" step
+> (`pip install -r requirements.txt`, often `--ignore-installed`) runs on a throwaway runner.
+> Locally, installing into the active global/pyenv env can corrupt it — e.g.
+> `--ignore-installed` layers a pinned version over a different pre-existing one, leaving a
+> mixed install (`ImportError: cannot import name …`) — and a stray `.python-version` may
+> select the wrong interpreter. **Translate every such step to
+> `lk8s_pip_install <requirements-file | pip-spec …>`**, not a raw `pip install`: it
+> creates/reuses a dedicated venv, activates it for the rest of the script (so every later
+> `python3`/`pytest` uses it), and installs cleanly. Pin the base interpreter with
+> `LK8S_PYTHON=python3.12` if needed.
 
 ### 3. Resolve `${{ }}` expressions
 - `inputs.X` → `lk8s_input X "<description>" [default]`. Honor `${{ inputs.x || 'default' }}`.
@@ -103,7 +114,8 @@ lk8s_cleanup_trap "$LK8S"                  # local-k8s.sh clean on exit
 
 Use the helper API (full contract in `utilities/reproduce-lib.sh`):
 - `lk8s_bootstrap [ref]` → resolves a local-k8s.sh checkout ($WEAVIATE_LOCAL_K8S_DIR or a pinned clone); echoes its dir.
-- `lk8s_input KEY [prompt] [default]` → env var → `$LK8S_INPUTS` file → interactive prompt.
+- `lk8s_input KEY [prompt] [default]` → env var → `$LK8S_INPUTS` file → interactive prompt. Expands a leading `~`.
+- `lk8s_pip_install <requirements-file | pip-spec …>` → creates/activates an isolated venv and installs deps (replaces a CI `pip install` step; avoids polluting the global/pyenv env). Knobs: `LK8S_VENV`, `LK8S_PYTHON`, `LK8S_VENV_RECREATE`.
 - `lk8s_values_override DIR` (heredoc on stdin) → writes `DIR/values-override.yaml` (mirrors action.yml).
 - `lk8s_weaviate DIR OPERATION key=value…` → deterministic translation + setup retry. Applies the **action's** input defaults for unset keys (these differ from local-k8s.sh's own defaults).
 - `lk8s_cleanup_trap DIR` → on EXIT: **keeps the cluster if a step failed** (so you can debug the same failure the CI job hit), tears it down on success. `LK8S_KEEP=true` always keeps; `LK8S_KEEP=false` always cleans.

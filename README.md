@@ -212,7 +212,10 @@ To remove that friction, the repo ships:
 - **`utilities/reproduce-lib.sh`** — deterministic helpers that translate a
   `weaviate/weaviate-local-k8s` action step into a local `local-k8s.sh` call (the
   action-input → env-var mapping, the action's input defaults, writing `values-override.yaml`,
-  bootstrapping a pinned checkout, the setup retry loop, and teardown-on-exit).
+  bootstrapping a pinned checkout, the setup retry loop, and teardown-on-exit). It also
+  installs each job's python dependencies into a **dedicated venv** (`lk8s_pip_install`) rather
+  than your active environment — CI gets a clean runner; this gives local runs the same clean
+  semantics instead of corrupting a shared global/pyenv install.
 - **The `reproducing-ci-jobs` Claude Code skill** (`.claude/skills/reproducing-ci-jobs/`) —
   reads an existing, **unchanged** workflow + job, sets aside CI-only steps (checkout, docker
   login, telemetry, artifact upload…), translates the `weaviate-local-k8s` steps, carries the
@@ -242,7 +245,9 @@ LK8S_INPUTS=./reproduce/<job>.inputs ./reproduce/<job>.sh
 you can reproduce and inspect the same failure the CI job hit (the script prints how to reach
 it and how to clean up). On success it tears down. Override with `LK8S_KEEP=true` (always
 keep) or `LK8S_KEEP=false` (always clean). Other knobs: `LK8S_MAX_RETRIES=1` fails fast;
-`WEAVIATE_LOCAL_K8S_DIR=<checkout>` uses a local working copy instead of cloning a pinned ref.
+`WEAVIATE_LOCAL_K8S_DIR=<checkout>` uses a local working copy instead of cloning a pinned ref;
+`LK8S_PYTHON=python3.12` pins the interpreter the dependency venv is built from (handy when a
+stray `.python-version` would otherwise pick the wrong one).
 
 > Why not [`act`](https://github.com/nektos/act)? `act` runs workflow steps inside a runner
 > container; this tool brings up a **Kind** cluster, which `act` can only start via the host

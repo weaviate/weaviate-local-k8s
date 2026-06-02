@@ -129,43 +129,49 @@ lk8s_bootstrap() {
 # ---------------------------------------------------------------------------------------
 lk8s_input() {
   local key="$1" prompt="${2:-$1}" default="${3:-}"
-  local val=""
+  local val="" resolved=0
 
   # 1. pre-set environment variable
   if [[ -n "${!key:-}" ]]; then
-    printf '%s' "${!key}"
-    return 0
+    val="${!key}"; resolved=1
   fi
 
   # 2. inputs file (KEY=value)
-  if [[ -n "${LK8S_INPUTS:-}" && -f "$LK8S_INPUTS" ]]; then
+  if [[ "$resolved" -eq 0 && -n "${LK8S_INPUTS:-}" && -f "$LK8S_INPUTS" ]]; then
     val="$(sed -n "s/^${key}=//p" "$LK8S_INPUTS" | head -n1)"
-    if [[ -n "$val" ]]; then
-      printf '%s' "$val"
-      return 0
-    fi
+    [[ -n "$val" ]] && resolved=1
   fi
 
   # 3. interactive prompt
-  if [[ -r /dev/tty ]]; then
+  if [[ "$resolved" -eq 0 && -r /dev/tty ]]; then
     local suffix=""
     [[ -n "$default" ]] && suffix=" [$default]"
     printf '\033[0;36m[reproduce] %s (%s)%s: \033[0m' "$prompt" "$key" "$suffix" >/dev/tty
     read -r val </dev/tty
     [[ -z "$val" && -n "$default" ]] && val="$default"
-    if [[ -n "$val" ]]; then
-      printf '%s' "$val"
-      return 0
-    fi
+    [[ -n "$val" ]] && resolved=1
   fi
 
-  if [[ -n "$default" ]]; then
-    printf '%s' "$default"
-    return 0
+  # 4. default fallback
+  if [[ "$resolved" -eq 0 && -n "$default" ]]; then
+    val="$default"; resolved=1
   fi
 
-  lk8s_err "No value for '$key'. Set it in \$LK8S_INPUTS, export it, or run interactively."
-  return 1
+  if [[ "$resolved" -eq 0 ]]; then
+    lk8s_err "No value for '$key'. Set it in \$LK8S_INPUTS, export it, or run interactively."
+    return 1
+  fi
+
+  # Expand a leading ~ or ~/ to $HOME. Values from an inputs file, env var, or prompt are
+  # plain strings — the shell's tilde expansion only fires on unquoted ~ tokens at parse
+  # time, so a path like `~/repos/foo` would otherwise reach `cd` with a literal tilde and
+  # fail. (We deliberately don't handle ~user/ — not needed for these inputs.)
+  case "$val" in
+    "~")   val="$HOME" ;;
+    "~/"*) val="$HOME/${val#\~/}" ;;
+  esac
+
+  printf '%s' "$val"
 }
 
 # ---------------------------------------------------------------------------------------
@@ -185,6 +191,79 @@ lk8s_values_override() {
   fi
   printf '%s\n' "$content" > "$dir/values-override.yaml"
   lk8s_log "Wrote $dir/values-override.yaml ($(printf '%s' "$content" | grep -c . ) non-empty lines)"
+}
+
+# ---------------------------------------------------------------------------------------
+# lk8s_pip_install [requirements-file | pip-spec ...]
+# Reproduce a CI "Install python dependencies" step WITHOUT polluting the developer's machine.
+#
+# On a throwaway CI runner, `pip install -r requirements.txt` (often `--ignore-installed`) is
+# harmless. Locally it installs into whatever interpreter is active — frequently a shared
+# global/pyenv env that already has a different weaviate-client. `--ignore-installed` then
+# layers the pinned version on top WITHOUT uninstalling the old one, leaving a corrupted
+# mixed install (e.g. `ImportError: cannot import name 'ConnectionType'`). A stray
+# `.python-version` can also silently select the wrong interpreter.
+#
+# This installs into a dedicated venv and ACTIVATES it for the rest of the (sourcing) script,
+# so every later `python3`/`pip` resolves there — the clean-environment semantics CI gets.
+# Args that are existing files become `-r <file>`; anything else is passed as a literal pip
+# spec. `--ignore-installed` is intentionally NOT used: in a clean venv, pip's normal resolver
+# replaces versions cleanly.
+#
+#   lk8s_pip_install "$CHAOS/apps/foo/requirements.txt"
+#   lk8s_pip_install 'weaviate-client==4.12.0' loguru
+#
+# Knobs:
+#   LK8S_VENV           venv directory (default: $LK8S_CACHE/repro-venv, reused across runs).
+#   LK8S_PYTHON         base interpreter used to CREATE the venv (default: python3 on PATH).
+#                       Set e.g. LK8S_PYTHON=python3.12 to dodge a stray .python-version/pyenv.
+#   LK8S_VENV_RECREATE  =true to delete and rebuild the venv from scratch first.
+# ---------------------------------------------------------------------------------------
+lk8s_pip_install() {
+  local venv="${LK8S_VENV:-${LK8S_CACHE:-$HOME/.cache/weaviate-local-k8s}/repro-venv}"
+  local base_python="${LK8S_PYTHON:-python3}"
+
+  if [[ "${LK8S_VENV_RECREATE:-false}" == "true" && -d "$venv" ]]; then
+    lk8s_log "LK8S_VENV_RECREATE=true — removing existing venv $venv"
+    rm -rf "$venv"
+  fi
+
+  if [[ ! -x "$venv/bin/python" ]]; then
+    if ! command -v "$base_python" >/dev/null 2>&1; then
+      lk8s_err "Base python '$base_python' not found. Install it or set \$LK8S_PYTHON."
+      return 1
+    fi
+    lk8s_log "Creating isolated repro venv at $venv (base: $("$base_python" --version 2>&1))"
+    "$base_python" -m venv "$venv"
+  else
+    lk8s_log "Reusing isolated repro venv at $venv"
+  fi
+
+  # Activate for the remainder of the script: put venv/bin first so plain `python3`/`pip`
+  # resolve here (bypassing pyenv shims and the global env). Subshells inherit the exported
+  # PATH, so `( cd … && python3 … )` steps below use the venv too.
+  export VIRTUAL_ENV="$venv"
+  export PATH="$venv/bin:$PATH"
+  unset PYTHONHOME 2>/dev/null || true
+  hash -r 2>/dev/null || true
+
+  local -a install_args=()
+  local a
+  for a in "$@"; do
+    if [[ -f "$a" ]]; then
+      install_args+=(-r "$a")
+    else
+      install_args+=("$a")
+    fi
+  done
+
+  if [[ ${#install_args[@]} -eq 0 ]]; then
+    lk8s_warn "lk8s_pip_install called with no requirements; venv activated, nothing installed."
+    return 0
+  fi
+
+  lk8s_log "pip install ${install_args[*]}  (into $venv)"
+  "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "${install_args[@]}"
 }
 
 # ---------------------------------------------------------------------------------------
