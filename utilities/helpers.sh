@@ -1176,10 +1176,16 @@ function use_local_images() {
         )
     fi
     echo_green "Uploading local images to the cluster"
+    pids=()
     for image in "${WEAVIATE_IMAGES[@]}"; do
-        check_and_pull_image $image
-        kind load docker-image $image --name weaviate-k8s
+        (
+            check_and_pull_image "$image"
+            kind load docker-image "$image" --name weaviate-k8s
+        ) &
+        pids+=($!)
     done
+    wait "${pids[@]}"
+    echo_green "All images loaded"
 }
 
 # Stream Weaviate pod state transitions into /tmp/weaviate_pod_states.log
