@@ -126,6 +126,26 @@ inputs:
     description: 'Whether or not to enable MCP write access (object upsert).'
     required: false
     default: 'false'
+  deployment-method:
+    description: 'How Weaviate is deployed: helm (weaviate-helm chart) or operator (wcs-weaviate-operator). Default: helm'
+    required: false
+    default: 'helm'
+  operator-branch:
+    description: 'Branch of weaviate/wcs-weaviate-operator to clone and build when deployment-method=operator'
+    required: false
+    default: 'main'
+  operator-image:
+    description: 'Pre-built wcs-weaviate-operator controller image. If present in the local Docker daemon it is loaded into Kind (useful for PR-built images), otherwise the cluster pulls it.'
+    required: false
+    default: ''
+  operator-dir:
+    description: 'Path to a local wcs-weaviate-operator checkout to use instead of cloning (e.g. the workspace checkout when running from the operator repository CI)'
+    required: false
+    default: ''
+  github-token:
+    description: 'Token with read access to weaviate/wcs-weaviate-operator (private). Required when deployment-method=operator and no operator-dir is provided.'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -173,6 +193,11 @@ runs:
         DOCKER_CONFIG: ${{ inputs.docker-config }}
         MCP: ${{ inputs.mcp }}
         MCP_WRITE_ACCESS: ${{ inputs.mcp-write-access }}
+        DEPLOYMENT_METHOD: ${{ inputs.deployment-method }}
+        OPERATOR_BRANCH: ${{ inputs.operator-branch }}
+        OPERATOR_IMAGE: ${{ inputs.operator-image }}
+        OPERATOR_DIR: ${{ inputs.operator-dir }}
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         # Retry configuration
         MAX_RETRIES=2
@@ -216,6 +241,14 @@ runs:
         kubectl get events -n weaviate || true
         echo "####### WEAVIATE STS CONFIG ######"
         kubectl get sts weaviate -n weaviate -o yaml || true
+        if [ "${{ inputs.deployment-method }}" = "operator" ]; then
+          echo "####### WEAVIATE CR ######"
+          kubectl get weaviate weaviate -n weaviate -o yaml || true
+          echo "####### OPERATOR PODS ######"
+          kubectl get deployment,pods -n wcs-weaviate-operator-system -o wide || true
+          echo "####### OPERATOR LOGS ######"
+          kubectl logs -n wcs-weaviate-operator-system deployment/wcs-weaviate-operator-controller-manager --tail=200 || true
+        fi
         echo "####### KUBECTL-RELAY PROCESSES ######"
         ps aux | grep kubectl-relay || echo "No kubectl-relay processes found" || true
         

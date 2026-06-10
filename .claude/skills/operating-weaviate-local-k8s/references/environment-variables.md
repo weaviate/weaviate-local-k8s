@@ -81,6 +81,26 @@ All are string `"true"` / `"false"`.
 | `MODULES` | `""` | Comma-separated module list |
 | `DOCKER_CONFIG` | `""` | Docker config file for pull secrets (absolute path, no `~`) |
 
+## Deployment Method (wcs-weaviate-operator)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPLOYMENT_METHOD` | `"helm"` | `helm` (weaviate-helm chart) or `operator` (wcs-weaviate-operator) |
+| `OPERATOR_BRANCH` | `"main"` | Branch of wcs-weaviate-operator to clone and docker-build |
+| `OPERATOR_IMAGE` | `""` | Pre-built controller image (kind-loaded if present locally; skips the build) |
+| `OPERATOR_DIR` | `""` | Local wcs-weaviate-operator checkout to use instead of cloning |
+| `OPERATOR_REPO` | github https URL | Clone URL override (e.g. SSH remote for the private repo) |
+| `CERT_MANAGER_VERSION` | `"v1.18.2"` | cert-manager release installed for the operator webhooks |
+| `WEAVIATE_STORAGE_SIZE` | `"32Gi"` | PVC size in the generated Weaviate CR |
+
+Operator-mode rules: `REPLICAS` must be 1 or odd >= 3; helm-only options
+(`HELM_BRANCH`, `VALUES_INLINE`, `AUTH_CONFIG`, `DELETE_STS`,
+`MCP`, `S3_OFFLOAD`, `COLLECTION_EXPORT`) are rejected and a
+`values-override.yaml` file is ignored with a warning; `cr-override.yaml` deep-merges
+into the generated CR; the operator admin API key lives in the
+`weaviate-operator-admin-key` secret. Cloning the private repo over HTTPS uses
+`GH_TOKEN`/`GITHUB_TOKEN` when set.
+
 ## Authentication
 
 | Variable | Default | Description |

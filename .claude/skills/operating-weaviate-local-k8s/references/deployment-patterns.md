@@ -220,3 +220,36 @@ kubectl get all -n weaviate
 # Verify environment variables
 kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[0].env[*]}' | jq -r '.name'
 ```
+
+## Operator Deployment (DEPLOYMENT_METHOD=operator)
+
+Deploys Weaviate through the wcs-weaviate-operator instead of the helm chart:
+cert-manager is installed (operator webhooks), the operator is installed from
+`dist/install.yaml` of the resolved sources, and a `Weaviate` CR
+(`database.weaviate.io/v1alpha1`) named `weaviate` is applied. Resource names
+match the helm chart (`sts/weaviate`, `svc/weaviate`, `svc/weaviate-grpc`), so
+ports, health checks and `EXPOSE_PODS` behave identically.
+
+```bash
+# From main (clone + docker build; private repo: needs GH_TOKEN or SSH OPERATOR_REPO)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.36.8" REPLICAS=3 ./local-k8s.sh setup
+
+# From a local checkout / a pre-built image
+DEPLOYMENT_METHOD=operator OPERATOR_DIR=~/repos/wcs-weaviate-operator WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-7" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Upgrade: re-apply the CR with the new version
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 ./local-k8s.sh upgrade
+```
+
+Verification additions on top of the standard checks:
+
+```bash
+kubectl get weaviate weaviate -n weaviate                      # CR status/conditions
+kubectl get secret weaviate-operator-admin-key -n weaviate \
+  -o jsonpath='{.data.key}' | base64 --decode                  # generated admin key
+kubectl logs -n wcs-weaviate-operator-system deployment/wcs-weaviate-operator-controller-manager
+```
+
+Constraints: REPLICAS 1 or odd >= 3; helm-only options rejected; customize the CR
+via `cr-override.yaml` (deep-merged). See the SKILL.md Operator Deployment section.

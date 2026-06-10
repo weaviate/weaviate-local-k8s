@@ -13,10 +13,17 @@ Expert context for developing features, reviewing code, and maintaining quality 
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `local-k8s.sh` | Main entry point. Defines env vars, orchestrates setup/upgrade/clean | ~400 |
-| `utilities/helpers.sh` | All helper functions (helm values, port forwarding, health checks) | ~1070 |
-| `action.yml` | GitHub Actions composite action definition | ~200 |
-| `.github/workflows/main.yml` | CI test matrix (12 test jobs) | ~870 |
+| `local-k8s.sh` | Main entry point. Defines env vars, orchestrates setup/upgrade/clean | ~480 |
+| `utilities/helpers.sh` | All helper functions (helm values, port forwarding, health checks) | ~1100 |
+| `utilities/operator.sh` | wcs-weaviate-operator deployment method (DEPLOYMENT_METHOD=operator) | ~300 |
+| `action.yml` | GitHub Actions composite action definition | ~250 |
+| `.github/workflows/main.yml` | CI test matrix (19 test jobs) | ~1400 |
+
+Two deployment methods exist: `helm` (default, weaviate-helm chart) and `operator`
+(wcs-weaviate-operator; installs cert-manager + the operator and applies a Weaviate
+CR named `weaviate`, producing the same k8s resource names as the chart). The
+methods are mutually exclusive; helm-only options are rejected by
+`validate_operator_config()` in `utilities/operator.sh`.
 
 ### Data Flow: Env Var to Cluster
 
@@ -135,6 +142,9 @@ In `use_local_images()`, add case block:
 6. **Idempotency**: `setup()` and `upgrade()` should handle re-runs gracefully
 7. **Error handling**: `set -eou pipefail` is active. Failed commands exit immediately.
 8. **action.yml parity**: Every env var must have a matching action input
+9. **Deployment-method awareness**: New features must either work with both `helm`
+   and `operator` methods, or be explicitly rejected in `validate_operator_config()`
+   (utilities/operator.sh) when helm-only. Helm values never leak into the Weaviate CR.
 
 ### Common Mistakes
 

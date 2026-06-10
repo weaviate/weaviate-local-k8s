@@ -135,6 +135,30 @@ Environment Variables:
     DASH0_ENDPOINT              Dash0 export endpoint (default: "ingress.eu-west-1.aws.dash0.com:4317")
     DASH0_API_ENDPOINT          Dash0 API endpoint (default: "api.eu-west-1.aws.dash0.com")
 
+  Deployment Method:
+    DEPLOYMENT_METHOD   How Weaviate is deployed: 'helm' (weaviate-helm chart) or
+                        'operator' (wcs-weaviate-operator) (default: "helm")
+    OPERATOR_BRANCH     Branch of weaviate/wcs-weaviate-operator to clone and build
+                        when DEPLOYMENT_METHOD=operator (default: "main")
+    OPERATOR_IMAGE      Pre-built operator controller image to use instead of building
+                        from sources. If present in the local Docker daemon it is loaded
+                        into Kind, otherwise the cluster pulls it (default: "")
+    OPERATOR_DIR        Path to a local wcs-weaviate-operator checkout to use instead of
+                        cloning (useful when testing operator PRs) (default: "")
+    CERT_MANAGER_VERSION Version of cert-manager to install for the operator webhooks
+                        (default: "v1.18.2")
+    WEAVIATE_STORAGE_SIZE PVC size for the Weaviate CR in operator mode (default: "32Gi")
+
+    Notes for DEPLOYMENT_METHOD=operator:
+      * Incompatible with HELM_BRANCH, VALUES_INLINE, AUTH_CONFIG, DELETE_STS,
+        MCP, S3_OFFLOAD and COLLECTION_EXPORT (helm-only). A values-override.yaml
+        file is ignored (with a warning).
+      * REPLICAS must be 1 or an odd number >= 3 (operator webhook validation).
+      * API key auth is always enabled by the operator; the generated admin key is
+        stored in the 'weaviate-operator-admin-key' secret and printed after setup.
+      * Use a 'cr-override.yaml' file (same directory as the script) to customize the
+        generated Weaviate CR, analogous to values-override.yaml for helm.
+
   Deployment Options:
     MODULES            Comma-separated list of Weaviate modules to enable (default: "")
                        Available modules: https://weaviate.io/developers/weaviate/model-providers
@@ -169,6 +193,15 @@ Examples:
 
     # Setup with modules and backup enabled
     WEAVIATE_VERSION="1.28.0" MODULES="text2vec-transformers" ENABLE_BACKUP=true ./local-k8s.sh setup
+
+    # Setup using the wcs-weaviate-operator instead of weaviate-helm
+    WEAVIATE_VERSION="1.32.0" DEPLOYMENT_METHOD=operator REPLICAS=3 ./local-k8s.sh setup
+
+    # Operator from a specific branch
+    WEAVIATE_VERSION="1.32.0" DEPLOYMENT_METHOD=operator OPERATOR_BRANCH="my-feature" ./local-k8s.sh setup
+
+    # Operator using a pre-built controller image (e.g. built from a PR)
+    WEAVIATE_VERSION="1.32.0" DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-123" ./local-k8s.sh setup
 
     # Clean up all resources
     ./local-k8s.sh clean
@@ -320,6 +353,19 @@ function get_bearer_token() {
         return
     fi
 
+    # The wcs-weaviate-operator wires AUTHENTICATION_APIKEY_ALLOWED_KEYS via a
+    # secretKeyRef (random admin key in secret weaviate-operator-admin-key)
+    # instead of a literal value. Resolve the referenced secret in that case.
+    secret_name=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ALLOWED_KEYS")].valueFrom.secretKeyRef.name}')
+    secret_key=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ALLOWED_KEYS")].valueFrom.secretKeyRef.key}')
+    if [[ -n "$secret_name" ]] && [[ -n "$secret_key" ]]; then
+        secret_tokens=$(kubectl get secret "$secret_name" -n weaviate -o jsonpath="{.data.${secret_key}}" | base64 --decode)
+        IFS=',' read -r bearer_token _ <<< "$secret_tokens"
+        if [[ -n "$bearer_token" ]]; then
+            echo "$bearer_token"
+            return
+        fi
+    fi
 
     # Check configmap as fallback
     if kubectl get configmap -n weaviate weaviate-config &>/dev/null; then
@@ -906,6 +952,20 @@ TZEOF
     echo "$helm_values"
 }
 
+# Adds the prometheus-community Helm repo (with retries). Called from
+# setup_helm and from setup_monitoring so monitoring also works when Weaviate
+# is deployed through the wcs-weaviate-operator (which skips setup_helm).
+function ensure_prometheus_helm_repo () {
+    for i in {1..3}; do
+        if helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; then
+            break
+        else
+            echo_yellow "Failed to add prometheus-community repo (attempt $i/3), retrying in 5s..."
+            sleep 5
+        fi
+    done
+}
+
 function setup_helm () {
     if [ $# -eq 0 ]; then
         HELM_BRANCH=""
@@ -916,14 +976,7 @@ function setup_helm () {
     echo_green "Adding Helm repositories with timeout settings"
 
     # Add prometheus-community repo with retry logic
-    for i in {1..3}; do
-        if helm repo add prometheus-community https://prometheus-community.github.io/helm-charts; then
-            break
-        else
-            echo_yellow "Failed to add prometheus-community repo (attempt $i/3), retrying in 5s..."
-            sleep 5
-        fi
-    done
+    ensure_prometheus_helm_repo
 
     if [ -n "${HELM_BRANCH:-}" ]; then
         WEAVIATE_HELM_DIR="/tmp/weaviate-helm"
@@ -965,6 +1018,9 @@ function setup_helm () {
 function setup_monitoring () {
 
     echo_green "Setting up monitoring"
+
+    # Required when deploying via the operator, where setup_helm is skipped
+    ensure_prometheus_helm_repo
 
     echo_green "*** Metrics API ***"
     # Start up metrics api

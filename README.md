@@ -34,6 +34,11 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
 - **dynamic-users**: When set to true it will enable dynamic user management. Allowing the creation, deletion, activation, deactivation and key rotation of users. (Optional, default: 'false')
 - **auth-config**: File location containing the RBAC configuration in YAML format. (Optional, default: '')
 - **debug**: When set to true it will run the script in debug mode (set -x). (Optional, default: 'false')
+- **deployment-method**: How Weaviate is deployed: `helm` (weaviate-helm chart) or `operator` (wcs-weaviate-operator). (Optional, default: 'helm')
+- **operator-branch**: Branch of [weaviate/wcs-weaviate-operator](https://github.com/weaviate/wcs-weaviate-operator) to clone and build when `deployment-method=operator`. (Optional, default: 'main')
+- **operator-image**: Pre-built wcs-weaviate-operator controller image. If the image exists in the local Docker daemon it is loaded into Kind (useful for images built from a PR), otherwise the cluster pulls it. (Optional, default: '')
+- **operator-dir**: Path to a local wcs-weaviate-operator checkout to use instead of cloning. Use this from the operator repository's own CI to test PRs. (Optional, default: '')
+- **github-token**: Token with read access to the private wcs-weaviate-operator repository. Required when `deployment-method=operator` and no `operator-dir` is provided. (Optional, default: '')
 
 ### Usage
 To use this action in your GitHub Actions workflow, you can add the following step:
@@ -154,6 +159,10 @@ The environment variables that can be passed are:
 - **DASH0_API_ENDPOINT** (Dash0 API endpoint)
 - **HELM_TIMEOUT** (Timeout for Helm operations)
 - **HELM_REPO_UPDATE_TIMEOUT** (Timeout for Helm repo updates)
+- **DEPLOYMENT_METHOD** (`helm` or `operator`, default `helm`)
+- **OPERATOR_BRANCH** / **OPERATOR_IMAGE** / **OPERATOR_DIR** / **OPERATOR_REPO** (wcs-weaviate-operator source/image selection)
+- **CERT_MANAGER_VERSION** (cert-manager version installed for the operator webhooks)
+- **WEAVIATE_STORAGE_SIZE** (PVC size of the Weaviate CR in operator mode, default `32Gi`)
 Example, running preview version of Weaviate, using the `raft-configuration` weaviate-helm branch:
 ```bash
 WEAVIATE_VERSION="preview--d58d616" REPLICAS=5 WORKERS=3 HELM_BRANCH="raft-configuration" WEAVIATE_PORT="8081" ./local-k8s.sh setup
@@ -196,6 +205,81 @@ WORKERS=2 WEAVIATE_VERSION="1.25" REPLICAS=3 ./local-k8s.sh upgrade --local-imag
 ```
 
 Make sure your images are present in your environment, as otherwise the script will fail saying it can't locate those images locally. Simply run `docker pull semitechnologies/weaviate:${WEAVIATE_VERSION}`.
+
+### Deploying with the wcs-weaviate-operator
+
+As an alternative to the weaviate-helm chart, Weaviate can be deployed through the
+[wcs-weaviate-operator](https://github.com/weaviate/wcs-weaviate-operator) by setting
+`DEPLOYMENT_METHOD=operator`. The script then installs cert-manager (required by the
+operator's admission webhooks), installs the operator, and applies a `Weaviate` custom
+resource (`database.weaviate.io/v1alpha1`) named `weaviate`. The operator creates the
+same resource names as the helm chart (`sts/weaviate`, `svc/weaviate`,
+`svc/weaviate-grpc`), so port-forwarding and health checks behave identically.
+
+```bash
+# Deploy a 3 node cluster through the operator (clones + builds the operator from main)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.36.8" REPLICAS=3 ./local-k8s.sh setup
+
+# Use a specific operator branch
+DEPLOYMENT_METHOD=operator OPERATOR_BRANCH="my-feature" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Use a pre-built operator image (e.g. built from a PR). If the image exists locally
+# it is loaded into Kind automatically.
+DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-123" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Use a local operator checkout (no clone). Ideal for developing the operator itself.
+DEPLOYMENT_METHOD=operator OPERATOR_DIR="$HOME/repos/wcs-weaviate-operator" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Upgrade the Weaviate version (the operator rolls the StatefulSet)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 ./local-k8s.sh upgrade
+```
+
+Notes:
+
+- The wcs-weaviate-operator repository is **private**. When the sources need to be
+  cloned (no `OPERATOR_DIR`), provide a token via `GH_TOKEN`/`GITHUB_TOKEN`, or set
+  `OPERATOR_REPO=git@github.com:weaviate/wcs-weaviate-operator.git` to clone over SSH.
+- `REPLICAS` must be 1 or an odd number >= 3 (enforced by the operator's webhook for
+  raft quorum).
+- The operator always enables API key authentication with a generated admin key
+  (user `weaviate-operator`). The key is stored in the `weaviate-operator-admin-key`
+  secret and printed at the end of `setup`. Anonymous access remains enabled unless
+  `RBAC=true`, mirroring the helm defaults.
+- Supported features in operator mode: `RBAC`, `OIDC`, `DYNAMIC_USERS`,
+  `ENABLE_BACKUP` (MinIO S3), `USAGE_S3`, `OBSERVABILITY`, `DASH0`, `EXPOSE_PODS`,
+  `WEAVIATE_IMAGE_PREFIX` and `--local-images`.
+- Helm-only options are rejected: `HELM_BRANCH`, `VALUES_INLINE`, `AUTH_CONFIG`,
+  `DELETE_STS`, `MCP`, `S3_OFFLOAD`, `COLLECTION_EXPORT`. A local
+  `values-override.yaml` file is ignored (with a warning) in operator mode.
+- To customize the generated `Weaviate` CR, create a `cr-override.yaml` file next to
+  the script (see `cr-override.yaml.example`); it is deep-merged into the CR the same
+  way `values-override.yaml` works for helm.
+- `MODULES` are passed to `spec.modules.extra`, but the operator does not deploy
+  module inference sidecars (contextionary, transformers, ...), so modules requiring
+  a companion deployment will not be functional.
+
+In GitHub Actions workflows:
+
+```yaml
+# Testing a wcs-weaviate-operator PR from the operator repository CI:
+# build the controller image from the PR checkout and hand both to the action.
+- name: Checkout operator PR
+  uses: actions/checkout@v4
+- name: Build operator image
+  run: docker build --build-arg VERSION=pr -t wcs-weaviate-operator:pr .
+- name: Deploy Weaviate through the operator
+  uses: weaviate/weaviate-local-k8s@v2
+  with:
+    deployment-method: 'operator'
+    operator-image: 'wcs-weaviate-operator:pr'
+    operator-dir: ${{ github.workspace }}
+    weaviate-version: '1.36.8'
+    replicas: '3'
+```
+
+The CI jobs of this repository that exercise the operator path require a
+`WCS_OPERATOR_PAT` secret (a token with read access to wcs-weaviate-operator); when
+the secret is not configured those jobs are skipped.
 
 ### Invocation
 

@@ -56,6 +56,10 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | MCP server | `MCP_ENABLED=true` |
 | MCP with write access | `MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true` |
 | Test from local source | Build image + `--local-images` (see Build from Local Source) |
+| Deploy via wcs-weaviate-operator | `DEPLOYMENT_METHOD=operator` (see Operator Deployment) |
+| Operator from branch | `DEPLOYMENT_METHOD=operator OPERATOR_BRANCH="my-branch"` |
+| Operator pre-built image (PR testing) | `DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="img:tag"` |
+| Operator from local checkout | `DEPLOYMENT_METHOD=operator OPERATOR_DIR=~/repos/wcs-weaviate-operator` |
 
 ### Timeout Estimation
 
@@ -170,6 +174,47 @@ WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true ./local
 ```bash
 WEAVIATE_VERSION="1.28.0" OBSERVABILITY=false ./local-k8s.sh setup
 ```
+
+### Operator Deployment (wcs-weaviate-operator)
+
+Deploy through the wcs-weaviate-operator instead of weaviate-helm. The script
+installs cert-manager + the operator and applies a `Weaviate` CR named `weaviate`
+(same resource names as helm: `sts/weaviate`, `svc/weaviate`, `svc/weaviate-grpc`).
+
+```bash
+# Default: clones + docker-builds the operator from main (private repo — needs
+# GH_TOKEN/GITHUB_TOKEN for https, or OPERATOR_REPO=git@github.com:... for SSH,
+# or OPERATOR_DIR pointing to a local checkout)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.36.8" REPLICAS=3 ./local-k8s.sh setup
+
+# Develop/test the operator itself from a local checkout
+DEPLOYMENT_METHOD=operator OPERATOR_DIR="$HOME/repos/wcs-weaviate-operator" \
+  WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Pre-built controller image (loaded into Kind if present locally)
+DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-123" \
+  WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Upgrade = re-apply the CR with the new version (operator rolls the STS)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 ./local-k8s.sh upgrade
+```
+
+Operator-mode rules:
+- `REPLICAS` must be 1 or an odd number >= 3 (webhook validation).
+- API key auth is ALWAYS enabled: admin user `weaviate-operator`, key in secret
+  `weaviate-operator-admin-key`. Get it:
+  `kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode`
+  Anonymous access stays on unless `RBAC=true` (helm parity).
+- Supported: `RBAC`, `OIDC`, `DYNAMIC_USERS`, `ENABLE_BACKUP`, `USAGE_S3`
+  (runtime overrides are always on in operator mode), `OBSERVABILITY`, `DASH0`,
+  `EXPOSE_PODS`, `WEAVIATE_IMAGE_PREFIX`, `--local-images`.
+- Rejected (helm-only): `HELM_BRANCH`, `VALUES_INLINE`, `AUTH_CONFIG`, `DELETE_STS`,
+  `MCP`, `S3_OFFLOAD`, `COLLECTION_EXPORT`. A `values-override.yaml` file is
+  ignored with a warning.
+- CR customization: `cr-override.yaml` next to the script (deep-merged into the
+  generated CR; see `cr-override.yaml.example`). Custom env vars go to
+  `spec.podConfig.extraEnv` there instead of `VALUES_INLINE`.
+- `MODULES` map to `spec.modules.extra`, but no inference sidecars are deployed.
 
 ### Build and Deploy from Local Weaviate Source
 

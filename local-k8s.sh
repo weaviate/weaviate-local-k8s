@@ -6,6 +6,8 @@ CURRENT_DIR="$(dirname "$0")"
 
 # Import functions from utilities.sh
 source "$CURRENT_DIR/utilities/helpers.sh"
+# Import wcs-weaviate-operator deployment helpers
+source "$CURRENT_DIR/utilities/operator.sh"
 
 REQUIREMENTS=(
     "kind"
@@ -72,6 +74,19 @@ MCP_WRITE_ACCESS=${MCP_WRITE_ACCESS:-"false"}
 DOCKER_CONFIG=${DOCKER_CONFIG:-""}
 ENABLE_RUNTIME_OVERRIDES=${ENABLE_RUNTIME_OVERRIDES:-"false"}
 RUNTIME_OVERRIDES_PATH=${RUNTIME_OVERRIDES_PATH:-"/config/overrides.yaml"}
+# Deployment method: 'helm' (weaviate-helm chart) or 'operator' (wcs-weaviate-operator)
+DEPLOYMENT_METHOD=${DEPLOYMENT_METHOD:-"helm"}
+OPERATOR_BRANCH=${OPERATOR_BRANCH:-"main"}
+OPERATOR_IMAGE=${OPERATOR_IMAGE:-""}
+OPERATOR_DIR=${OPERATOR_DIR:-""}
+OPERATOR_REPO=${OPERATOR_REPO:-"https://github.com/weaviate/wcs-weaviate-operator.git"}
+CERT_MANAGER_VERSION=${CERT_MANAGER_VERSION:-"v1.18.2"}
+WEAVIATE_STORAGE_SIZE=${WEAVIATE_STORAGE_SIZE:-"32Gi"}
+
+if [[ "$DEPLOYMENT_METHOD" != "helm" && "$DEPLOYMENT_METHOD" != "operator" ]]; then
+    echo_red "Invalid DEPLOYMENT_METHOD: '$DEPLOYMENT_METHOD'. Supported values: helm, operator"
+    exit 1
+fi
 
 if [[ $DEBUG == "true" ]]; then
     set -x
@@ -99,12 +114,20 @@ function get_timeout() {
     if [ "$DASH0" == "true" ]; then
         modules_timeout=$((modules_timeout + 100))
     fi
+    if [ "$DEPLOYMENT_METHOD" == "operator" ]; then
+        # cert-manager + operator install/reconcile overhead
+        modules_timeout=$((modules_timeout + 300))
+    fi
 
     echo "$((modules_timeout + (REPLICAS * 100)))s"
 }
 
 function upgrade() {
-    echo_green "upgrade # Upgrading to Weaviate ${WEAVIATE_VERSION}"
+    echo_green "upgrade # Upgrading to Weaviate ${WEAVIATE_VERSION} (deployment method: $DEPLOYMENT_METHOD)"
+
+    if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
+        validate_operator_config
+    fi
 
     # Make sure to set the right context
     kubectl config use-context kind-weaviate-k8s
@@ -112,8 +135,10 @@ function upgrade() {
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         use_local_images
-        # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
-        VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
+        if [[ $DEPLOYMENT_METHOD == "helm" ]]; then
+            # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
+            VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
+        fi
     fi
 
     if [[ $need_minio == "true" ]]; then
@@ -125,33 +150,45 @@ function upgrade() {
     stop_weaviate_pod_state_logger || true
     start_weaviate_pod_state_logger || true
 
-    # This function sets up weaviate-helm and sets the global env var $TARGET
-    setup_helm $HELM_BRANCH
-
-    if [ "$DELETE_STS" == "true" ]; then
-        echo_yellow "upgrade # Deleting Weaviate StatefulSet"
-        kubectl delete sts weaviate -n weaviate
+    if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
+        if [[ $need_minio == "true" ]]; then
+            create_minio_credentials_secret
+        fi
+        generate_weaviate_cr
+        echo_green "upgrade # Applying updated Weaviate CR through the wcs-weaviate-operator"
+        deploy_weaviate_cr
+        # The operator reconciles the CR change into the StatefulSet; wait for
+        # the pod template to reference the new image before watching rollout.
+        wait_for_operator_sts_image
     else
-        echo_green "upgrade # Weaviate StatefulSet is not being deleted"
+        # This function sets up weaviate-helm and sets the global env var $TARGET
+        setup_helm $HELM_BRANCH
+
+        if [ "$DELETE_STS" == "true" ]; then
+            echo_yellow "upgrade # Deleting Weaviate StatefulSet"
+            kubectl delete sts weaviate -n weaviate
+        else
+            echo_green "upgrade # Weaviate StatefulSet is not being deleted"
+        fi
+
+        HELM_VALUES=$(generate_helm_values)
+
+        VALUES_OVERRIDE=""
+        # Check if values-override.yaml file exists
+        if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
+            VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
+        fi
+
+        echo_green "upgrade # Upgrading weaviate-helm with values: \n\
+            TARGET: $TARGET \n\
+            HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
+            VALUES_OVERRIDE: $VALUES_OVERRIDE"
+        helm upgrade weaviate $TARGET  \
+            --namespace weaviate \
+            --timeout $HELM_TIMEOUT \
+            $HELM_VALUES \
+            $VALUES_OVERRIDE
     fi
-
-    HELM_VALUES=$(generate_helm_values)
-
-    VALUES_OVERRIDE=""
-    # Check if values-override.yaml file exists
-    if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
-        VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
-    fi
-
-    echo_green "upgrade # Upgrading weaviate-helm with values: \n\
-        TARGET: $TARGET \n\
-        HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
-        VALUES_OVERRIDE: $VALUES_OVERRIDE"
-    helm upgrade weaviate $TARGET  \
-        --namespace weaviate \
-        --timeout $HELM_TIMEOUT \
-        $HELM_VALUES \
-        $VALUES_OVERRIDE
 
     # Wait for Weaviate to be up
     # during the upgrade we don't need to wait for other modules to be ready, they should be already running
@@ -177,7 +214,10 @@ function upgrade() {
 
 
 function setup() {
-    echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s"
+    echo_green "setup # Setting up Weaviate $WEAVIATE_VERSION on local k8s (deployment method: $DEPLOYMENT_METHOD)"
+    if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
+        validate_operator_config
+    fi
     verify_ports_available $REPLICAS
     mount_config=""
     if [ "${DOCKER_CONFIG}" != "" ]; then
@@ -205,8 +245,10 @@ EOF
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         use_local_images
-        # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
-        VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
+        if [[ $DEPLOYMENT_METHOD == "helm" ]]; then
+            # Make sure that the image.registry doesn't point to cr.weaviate.io, otherwise the local images won't be used
+            VALUES_INLINE="$VALUES_INLINE --set imagePullPolicy=Never --set image.registry=docker.io"
+        fi
     fi
 
     # Create namespace
@@ -220,7 +262,9 @@ EOF
         startup_minio
     fi
 
-    if [[ $USAGE_S3 == "true" ]] && [[ $ENABLE_RUNTIME_OVERRIDES != "true" ]]; then
+    # The operator always enables runtime overrides, so the requirement only
+    # applies to the helm deployment method.
+    if [[ $USAGE_S3 == "true" ]] && [[ $ENABLE_RUNTIME_OVERRIDES != "true" ]] && [[ $DEPLOYMENT_METHOD == "helm" ]]; then
         echo_red "Must set ENABLE_RUNTIME_OVERRIDES if USAGE_S3 is enabled"
         exit 1
     fi
@@ -234,8 +278,10 @@ EOF
         startup_keycloak
     fi
 
-    # This function sets up weaviate-helm and sets the global env var $TARGET
-    setup_helm $HELM_BRANCH
+    if [[ $DEPLOYMENT_METHOD == "helm" ]]; then
+        # This function sets up weaviate-helm and sets the global env var $TARGET
+        setup_helm $HELM_BRANCH
+    fi
 
     # Setup monitoring in the weaviate cluster
     if [[ $OBSERVABILITY == "true" ]]; then
@@ -247,25 +293,36 @@ EOF
         setup_dash0
     fi
 
-    VALUES_OVERRIDE=""
-    # Check if values-override.yaml file exists
-    if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
-        VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
+    if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
+        setup_cert_manager
+        setup_operator
+        if [[ $need_minio == "true" ]]; then
+            create_minio_credentials_secret
+        fi
+        generate_weaviate_cr
+        echo_green "setup # Deploying Weaviate through the wcs-weaviate-operator"
+        deploy_weaviate_cr
+    else
+        VALUES_OVERRIDE=""
+        # Check if values-override.yaml file exists
+        if [ -f "${CURRENT_DIR}/values-override.yaml" ]; then
+            VALUES_OVERRIDE="-f ${CURRENT_DIR}/values-override.yaml"
+        fi
+
+        HELM_VALUES=$(generate_helm_values)
+
+        echo_green "setup # Deploying weaviate-helm with values: \n\
+            TARGET: $TARGET \n\
+            HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
+            VALUES_OVERRIDE: $VALUES_OVERRIDE"
+        # Install Weaviate using Helm
+        helm upgrade --install weaviate $TARGET \
+        --namespace weaviate \
+        --timeout $HELM_TIMEOUT \
+        $HELM_VALUES \
+        $VALUES_OVERRIDE
+        #--set debug=true
     fi
-
-    HELM_VALUES=$(generate_helm_values)
-
-    echo_green "setup # Deploying weaviate-helm with values: \n\
-        TARGET: $TARGET \n\
-        HELM_VALUES: $(echo "$HELM_VALUES" | tr -s ' ') \n\
-        VALUES_OVERRIDE: $VALUES_OVERRIDE"
-    # Install Weaviate using Helm
-    helm upgrade --install weaviate $TARGET \
-    --namespace weaviate \
-    --timeout $HELM_TIMEOUT \
-    $HELM_VALUES \
-    $VALUES_OVERRIDE
-    #--set debug=true
 
 
     # Wait for Weaviate to be up
@@ -280,6 +337,9 @@ EOF
     done
     echo_green "setup # Waiting (with timeout=$TIMEOUT) for Weaviate $REPLICAS node cluster to be ready"
     kubectl wait sts/weaviate -n weaviate --for jsonpath='{.status.readyReplicas}'=${REPLICAS} --timeout=${TIMEOUT}
+    if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
+        wait_for_weaviate_cr_ready 300s
+    fi
     port_forward_to_weaviate $REPLICAS
     if [[ $EXPOSE_PODS == "true" ]]; then
         port_forward_weaviate_pods
@@ -347,6 +407,12 @@ function clean() {
 
     # Make sure to set the right context
     kubectl config use-context kind-weaviate-k8s
+
+    # Delete the Weaviate CR first if the wcs-weaviate-operator deployed it,
+    # so the operator can tear down its resources before the namespace goes.
+    if kubectl get weaviate weaviate -n weaviate &> /dev/null; then
+        kubectl delete weaviate weaviate -n weaviate --timeout=120s || true
+    fi
 
     # Check if Weaviate release exists
     if helm status weaviate -n weaviate &> /dev/null; then

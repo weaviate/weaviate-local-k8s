@@ -6,10 +6,11 @@ File structure, function signatures, naming conventions, and data flow.
 
 ```
 weaviate-local-k8s/
-  local-k8s.sh          # Main entry point (~400 lines)
+  local-k8s.sh          # Main entry point (~480 lines)
   utilities/
-    helpers.sh           # All helper functions (~1070 lines)
-  action.yml             # GitHub Actions composite action (~200 lines)
+    helpers.sh           # All helper functions (~1100 lines)
+    operator.sh          # wcs-weaviate-operator deployment helpers (~300 lines)
+  action.yml             # GitHub Actions composite action (~250 lines)
   .github/workflows/
     main.yml             # CI test matrix (~870 lines)
   manifests/
@@ -120,6 +121,34 @@ User sets env vars (RBAC=true, REPLICAS=3, etc.)
 | `start/stop_weaviate_pod_state_logger()` | Background pod state tracking |
 | `echo_green/yellow/red()` | Colored output helpers |
 | `show_help()` | CLI help text |
+
+## operator.sh Function Map (DEPLOYMENT_METHOD=operator)
+
+`utilities/operator.sh` is sourced by `local-k8s.sh` and implements the
+wcs-weaviate-operator deployment method. `setup()`/`upgrade()` branch on
+`$DEPLOYMENT_METHOD`: the helm path calls `setup_helm` + `generate_helm_values` +
+`helm upgrade`; the operator path calls the functions below. Everything else
+(Kind cluster, MinIO/Keycloak/monitoring, port forwarding, health checks) is
+shared between both methods.
+
+| Function | Purpose |
+|----------|---------|
+| `validate_operator_config()` | Rejects helm-only options (HELM_BRANCH, VALUES_INLINE, AUTH_CONFIG, DELETE_STS, MCP, S3_OFFLOAD, COLLECTION_EXPORT; values-override.yaml only warns), enforces replicas 1/odd>=3, checks git/docker/yq |
+| `setup_cert_manager()` | Installs cert-manager (operator webhooks need it, failurePolicy=Fail) |
+| `setup_operator()` | Resolves sources (OPERATOR_DIR > clone OPERATOR_BRANCH), resolves image (OPERATOR_IMAGE or docker build), kind-loads, renders dist/install.yaml (image replace + ServiceMonitor strip when CRD absent), applies with retries, waits for controller |
+| `create_minio_credentials_secret()` | Secret consumed by spec.cloudAuth.aws.credentials |
+| `generate_weaviate_cr()` | Env vars -> /tmp/weaviate-cr.yaml (yq-built), merges cr-override.yaml |
+| `deploy_weaviate_cr()` | kubectl apply with retries (webhook warm-up) |
+| `wait_for_operator_sts_image()` | Upgrade: waits until the operator reconciles the new image into the STS template |
+| `wait_for_weaviate_cr_ready()` | kubectl wait --for=condition=Ready on the CR |
+| `log_operator_debug_info()` | CR yaml + operator pods/logs dump on failure |
+
+Key invariant: the CR is named `weaviate` in namespace `weaviate`, so the operator
+produces `sts/weaviate`, `svc/weaviate`, `svc/weaviate-grpc` and configmap
+`weaviate-cm` — the same names as the helm chart — keeping all shared helpers
+working. The operator always enables API key auth via a secretKeyRef
+(`weaviate-operator-admin-key` secret); `get_bearer_token()` in helpers.sh
+resolves it.
 
 ## Naming Conventions
 
