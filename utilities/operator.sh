@@ -92,13 +92,29 @@ function setup_operator() {
         # weaviate/wcs-weaviate-operator is a private repository. For HTTPS
         # clones a token can be supplied via GH_TOKEN/GITHUB_TOKEN; local
         # users can also point OPERATOR_REPO at an SSH remote.
-        local clone_url="$OPERATOR_REPO"
         local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-        if [[ -n "$token" ]] && [[ "$clone_url" == https://github.com/* ]]; then
-            clone_url="https://x-access-token:${token}@github.com/${clone_url#https://github.com/}"
-        fi
         echo_green "Cloning wcs-weaviate-operator (branch: ${OPERATOR_BRANCH})"
-        if ! git clone -b "$OPERATOR_BRANCH" --depth 1 "$clone_url" "$src_dir"; then
+        local clone_rc=0
+        if [[ -n "$token" ]] && [[ "$OPERATOR_REPO" == https://github.com/* ]]; then
+            # Authenticate via GIT_ASKPASS so the token never lands on the
+            # command line (where 'ps' or shell history could capture it).
+            # GIT_ASKPASS is non-interactive: git runs the helper to read the
+            # credential, and the helper only echoes an env var, so nothing
+            # secret is written to disk either. The 'x-access-token' username is
+            # not sensitive. GIT_TERMINAL_PROMPT=0 keeps it fully automated
+            # (fail fast instead of hanging on a tty prompt).
+            local askpass
+            askpass="$(mktemp)"
+            printf '#!/bin/sh\nexec echo "$GIT_ASKPASS_TOKEN"\n' > "$askpass"
+            chmod +x "$askpass"
+            local auth_url="https://x-access-token@github.com/${OPERATOR_REPO#https://github.com/}"
+            GIT_ASKPASS_TOKEN="$token" GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
+                git clone -b "$OPERATOR_BRANCH" --depth 1 "$auth_url" "$src_dir" || clone_rc=$?
+            rm -f "$askpass"
+        else
+            git clone -b "$OPERATOR_BRANCH" --depth 1 "$OPERATOR_REPO" "$src_dir" || clone_rc=$?
+        fi
+        if [[ "$clone_rc" -ne 0 ]]; then
             echo_red "Could not clone ${OPERATOR_REPO} (branch: ${OPERATOR_BRANCH})."
             echo_red "The repository is private: provide a token via GH_TOKEN/GITHUB_TOKEN,"
             echo_red "set OPERATOR_REPO to an SSH remote, or point OPERATOR_DIR at a local checkout."
@@ -110,13 +126,15 @@ function setup_operator() {
     if [[ -z "$operator_image" ]]; then
         operator_image="wcs-weaviate-operator:local"
         echo_green "Building operator image ${operator_image} from ${src_dir}"
-        # BuildKit is required: the operator's .dockerignore uses an
-        # exclude-all + '!**/*.go' re-include pattern that the legacy builder
-        # resolves incorrectly (the Go sources never reach the build context).
-        # --load is required for buildx container drivers, where the result
-        # would otherwise stay in the build cache and never reach the local
-        # Docker daemon (and therefore 'kind load' would fail).
-        DOCKER_BUILDKIT=1 docker build --load --build-arg VERSION=local -t "$operator_image" "$src_dir"
+        # Use 'docker buildx build' (BuildKit): the operator's .dockerignore
+        # uses an exclude-all + '!**/*.go' re-include pattern that the legacy
+        # builder resolves incorrectly (the Go sources never reach the build
+        # context). '--load' exports the result into the local Docker daemon —
+        # with a buildx container driver it would otherwise stay in the build
+        # cache and 'kind load' would fail. '--load' is a buildx-only flag, so
+        # we invoke buildx explicitly instead of relying on 'docker build'
+        # being aliased to buildx (which is not the case on plain Docker/CI).
+        docker buildx build --load --build-arg VERSION=local -t "$operator_image" "$src_dir"
         kind load docker-image "$operator_image" --name weaviate-k8s
     elif docker image inspect "$operator_image" &> /dev/null; then
         echo_green "Loading local operator image ${operator_image} into Kind"

@@ -359,7 +359,10 @@ function get_bearer_token() {
     secret_name=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ALLOWED_KEYS")].valueFrom.secretKeyRef.name}')
     secret_key=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[*].env[?(@.name=="AUTHENTICATION_APIKEY_ALLOWED_KEYS")].valueFrom.secretKeyRef.key}')
     if [[ -n "$secret_name" ]] && [[ -n "$secret_key" ]]; then
-        secret_tokens=$(kubectl get secret "$secret_name" -n weaviate -o jsonpath="{.data.${secret_key}}" | base64 --decode)
+        # Keep this non-fatal: under 'set -eou pipefail' a missing or temporarily
+        # unavailable secret (or a base64 decode error) would otherwise abort the
+        # whole script instead of letting us fall through to the configmap path.
+        secret_tokens=$(kubectl get secret "$secret_name" -n weaviate -o jsonpath="{.data.${secret_key}}" 2>/dev/null | base64 --decode 2>/dev/null || true)
         IFS=',' read -r bearer_token _ <<< "$secret_tokens"
         if [[ -n "$bearer_token" ]]; then
             echo "$bearer_token"
