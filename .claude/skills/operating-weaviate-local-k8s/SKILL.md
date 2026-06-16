@@ -214,7 +214,12 @@ Operator-mode rules:
 - CR customization: `cr-override.yaml` next to the script (deep-merged into the
   generated CR; see `cr-override.yaml.example`). Custom env vars go to
   `spec.podConfig.extraEnv` there instead of `VALUES_INLINE`.
-- `MODULES` map to `spec.modules.extra`, but no inference sidecars are deployed.
+- `MODULES` map to `spec.modules.extra`. For the local vectorizers
+  `text2vec-transformers` and `text2vec-model2vec`, weaviate-local-k8s also
+  deploys the inference service (from `manifests/`, what the helm chart would
+  create) and wires the CR `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API`
+  env var to it. Other modules needing a companion deployment are enabled in the
+  CR but not functional (warned at setup).
 
 ### Build and Deploy from Local Weaviate Source
 

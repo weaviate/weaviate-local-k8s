@@ -1256,6 +1256,77 @@ jobs:
               echo "Error: Grafana is not listening, returned $error"
               exit 1
             fi
+    run-weaviate-local-k8s-operator-modules:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator deployment with local vectorizer modules
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        MODULES: 'text2vec-transformers,text2vec-model2vec'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            modules: ${{ env.MODULES }}
+            expose-pods: 'false'
+        - name: Check the configured values
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=120s
+            # The operator does not ship module inference servers; weaviate-local-k8s
+            # must have deployed them for the local vectorizer modules.
+            kubectl rollout status deployment/transformers-inference -n weaviate --timeout=300s
+            kubectl rollout status deployment/model2vec-inference -n weaviate --timeout=300s
+            # Weaviate must be pointed at the in-cluster inference services via the CR
+            t_api=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="TRANSFORMERS_INFERENCE_API")].value}')
+            if [[ "$t_api" != "http://transformers-inference:8080" ]]; then
+                echo "Error: TRANSFORMERS_INFERENCE_API is not set correctly. Found '$t_api'"
+                exit 1
+            fi
+            m_api=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MODEL2VEC_INFERENCE_API")].value}')
+            if [[ "$m_api" != "http://model2vec-inference:8080" ]]; then
+                echo "Error: MODEL2VEC_INFERENCE_API is not set correctly. Found '$m_api'"
+                exit 1
+            fi
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            # Both vectorizer modules must be advertised by Weaviate
+            modules=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/meta | jq -r '.modules | keys[]')
+            echo "$modules" | grep -q "text2vec-transformers"
+            echo "$modules" | grep -q "text2vec-model2vec"
+            # End-to-end: each local vectorizer must actually produce a vector
+            for vectorizer in text2vec-transformers text2vec-model2vec; do
+              class="Doc_${vectorizer//-/_}"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $ADMIN_KEY" \
+                -d "{\"class\": \"$class\", \"vectorizer\": \"$vectorizer\", \"properties\": [{\"name\": \"text\", \"dataType\": [\"text\"]}]}" \
+                http://127.0.0.1:8080/v1/schema
+              id=$(curl -s -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $ADMIN_KEY" \
+                -d "{\"class\": \"$class\", \"properties\": {\"text\": \"the quick brown fox\"}}" \
+                http://127.0.0.1:8080/v1/objects | jq -r '.id')
+              if [[ -z "$id" || "$id" == "null" ]]; then
+                  echo "Error: object was not created for $vectorizer"
+                  exit 1
+              fi
+              vec_len=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" \
+                "http://127.0.0.1:8080/v1/objects/$class/$id?include=vector" | jq '.vector | length')
+              if [[ -z "$vec_len" || "$vec_len" == "null" || "$vec_len" -lt 1 ]]; then
+                  echo "Error: $vectorizer did not produce a vector (length=$vec_len)"
+                  exit 1
+              fi
+              echo "$vectorizer produced a vector of length $vec_len"
+            done
     run-weaviate-local-k8s-operator-upgrade:
       needs: [get-latest-weaviate-version, check-operator-token]
       if: needs.check-operator-token.outputs.has-token == 'true'

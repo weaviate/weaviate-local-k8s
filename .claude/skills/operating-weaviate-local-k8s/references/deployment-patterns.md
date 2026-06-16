@@ -242,6 +242,24 @@ DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-7" WEAVIATE_
 DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 ./local-k8s.sh upgrade
 ```
 
+### Local vectorizer modules in operator mode
+
+The operator configures Weaviate to use a vectorizer but does not deploy the
+companion inference server (the helm chart does). For `text2vec-transformers`
+and `text2vec-model2vec`, weaviate-local-k8s deploys it itself from
+`manifests/transformers-inference.yaml` / `manifests/model2vec-inference.yaml`
+(same images as the helm path, so `--local-images` is reused) and wires the CR's
+`spec.podConfig.extraEnv` to point Weaviate at the in-cluster service:
+
+```bash
+DEPLOYMENT_METHOD=operator MODULES="text2vec-transformers,text2vec-model2vec" \
+  WEAVIATE_VERSION="1.37.0" REPLICAS=1 ./local-k8s.sh setup
+```
+
+Resources live in the `weaviate` namespace, so `clean()` removes them with it.
+Other modules requiring a companion deployment are enabled in the CR but stay
+non-functional (warned at setup).
+
 Verification additions on top of the standard checks:
 
 ```bash
@@ -249,6 +267,8 @@ kubectl get weaviate weaviate -n weaviate                      # CR status/condi
 kubectl get secret weaviate-operator-admin-key -n weaviate \
   -o jsonpath='{.data.key}' | base64 --decode                  # generated admin key
 kubectl logs -n wcs-weaviate-operator-system deployment/wcs-weaviate-operator-controller-manager
+kubectl rollout status deployment/transformers-inference -n weaviate  # local vectorizer (if enabled)
+kubectl rollout status deployment/model2vec-inference -n weaviate     # local vectorizer (if enabled)
 ```
 
 Constraints: REPLICAS 1 or odd >= 3; helm-only options rejected; customize the CR

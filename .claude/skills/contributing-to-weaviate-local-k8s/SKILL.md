@@ -17,7 +17,7 @@ Expert context for developing features, reviewing code, and maintaining quality 
 | `utilities/helpers.sh` | All helper functions (helm values, port forwarding, health checks) | ~1100 |
 | `utilities/operator.sh` | wcs-weaviate-operator deployment method (DEPLOYMENT_METHOD=operator) | ~300 |
 | `action.yml` | GitHub Actions composite action definition | ~250 |
-| `.github/workflows/main.yml` | CI test matrix (19 test jobs) | ~1400 |
+| `.github/workflows/main.yml` | CI test matrix (~20 test jobs) | ~1400 |
 
 Two deployment methods exist: `helm` (default, weaviate-helm chart) and `operator`
 (wcs-weaviate-operator; installs cert-manager + the operator and applies a Weaviate

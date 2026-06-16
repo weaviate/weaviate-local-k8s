@@ -22,6 +22,7 @@ Test coverage map, adding tests, and quality standards.
 | Operator token gate | `check-operator-token` | Exposes whether the `WCS_OPERATOR_PAT` secret exists (operator repo is private); operator jobs below skip when absent |
 | Operator basic | `run-weaviate-local-k8s-operator-basic` | DEPLOYMENT_METHOD=operator, 3 replicas, CR Ready, generated admin key, anonymous default, metrics, per-pod forwarding |
 | Operator features | `run-weaviate-local-k8s-operator-features` | Operator + RBAC (401 anonymous), OIDC (conf.yaml + keycloak), dynamic users, MinIO backup, USAGE_S3, observability |
+| Operator modules | `run-weaviate-local-k8s-operator-modules` | Operator + local vectorizers (text2vec-transformers, text2vec-model2vec): inference Deployments roll out, CR wires `*_INFERENCE_API` env, end-to-end vector produced per vectorizer |
 | Operator upgrade | `run-weaviate-local-k8s-operator-upgrade` | 1.36.0 -> latest by re-applying the CR (operator rolls the STS) |
 | Operator prebuilt image | `run-weaviate-local-k8s-operator-prebuilt-image` | Simulates the wcs-weaviate-operator PR CI flow: docker-build the controller, pass operator-image + operator-dir |
 | Operator guard | `run-weaviate-local-k8s-operator-helm-incompatible` | deployment-method=operator + helm-branch must fail fast (no token needed) |

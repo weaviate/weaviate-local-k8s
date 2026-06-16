@@ -99,7 +99,12 @@ Operator-mode rules: `REPLICAS` must be 1 or odd >= 3; helm-only options
 `values-override.yaml` file is ignored with a warning; `cr-override.yaml` deep-merges
 into the generated CR; the operator admin API key lives in the
 `weaviate-operator-admin-key` secret. Cloning the private repo over HTTPS uses
-`GH_TOKEN`/`GITHUB_TOKEN` when set.
+`GH_TOKEN`/`GITHUB_TOKEN` when set. For the local vectorizers in `MODULES`
+(`text2vec-transformers`, `text2vec-model2vec`), the inference Deployment + Service
+is applied from `manifests/` and the CR's `TRANSFORMERS_INFERENCE_API`/
+`MODEL2VEC_INFERENCE_API` is wired to it (the operator itself does not ship
+inference servers); other modules needing a companion deployment are enabled in the
+CR but not functional.
 
 ## Authentication
 

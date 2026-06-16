@@ -19,6 +19,8 @@ weaviate-local-k8s/
     keycloak-weaviate-realm.json  # Keycloak realm config for OIDC
     grafana-renderer.yaml         # Grafana renderer deployment
     metrics-server.yaml           # Metrics server deployment
+    transformers-inference.yaml   # text2vec-transformers inference svc (operator mode)
+    model2vec-inference.yaml      # text2vec-model2vec inference svc (operator mode)
     grafana-dashboards/           # 15+ Grafana dashboard JSON files
   scripts/
     create_oidc_user.sh  # Create Keycloak user
@@ -137,7 +139,8 @@ shared between both methods.
 | `setup_cert_manager()` | Installs cert-manager (operator webhooks need it, failurePolicy=Fail) |
 | `setup_operator()` | Resolves sources (OPERATOR_DIR > clone OPERATOR_BRANCH), resolves image (OPERATOR_IMAGE or docker build), kind-loads, renders dist/install.yaml (image replace + ServiceMonitor strip when CRD absent), applies with retries, waits for controller |
 | `create_minio_credentials_secret()` | Secret consumed by spec.cloudAuth.aws.credentials |
-| `generate_weaviate_cr()` | Env vars -> /tmp/weaviate-cr.yaml (yq-built), merges cr-override.yaml |
+| `deploy_operator_module_services()` | Deploys the inference Deployment+Service for local vectorizers the operator does not ship — `text2vec-transformers` -> `manifests/transformers-inference.yaml`, `text2vec-model2vec` -> `manifests/model2vec-inference.yaml` (idempotent kubectl apply; called before the CR in setup/upgrade) |
+| `generate_weaviate_cr()` | Env vars -> /tmp/weaviate-cr.yaml (yq-built), merges cr-override.yaml. For local vectorizer MODULES also appends `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API` to `spec.podConfig.extraEnv` pointing at the in-cluster service |
 | `deploy_weaviate_cr()` | kubectl apply with retries (webhook warm-up) |
 | `wait_for_operator_sts_image()` | Upgrade: waits until the operator reconciles the new image into the STS template |
 | `wait_for_weaviate_cr_ready()` | kubectl wait --for=condition=Ready on the CR |

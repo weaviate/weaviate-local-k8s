@@ -55,10 +55,51 @@ function validate_operator_config() {
     done
 
     if [[ -n "$MODULES" ]]; then
-        echo_yellow "DEPLOYMENT_METHOD=operator: MODULES are passed to the Weaviate CR (spec.modules.extra),"
-        echo_yellow "but the operator does not deploy module inference sidecars (contextionary, transformers, ...)."
-        echo_yellow "Modules requiring a companion deployment will not be functional."
+        # MODULES are passed to the Weaviate CR (spec.modules.extra). The
+        # operator only configures Weaviate to use a module, it does not deploy
+        # the companion inference server. We deploy the inference services for
+        # text2vec-transformers and text2vec-model2vec ourselves (see
+        # deploy_operator_module_services); any other module that needs a
+        # companion deployment will be enabled in the CR but not functional.
+        IFS=',' read -ra VALIDATE_MODULES <<< "$MODULES"
+        local modules_without_inference=""
+        for MODULE in "${VALIDATE_MODULES[@]}"; do
+            case "$MODULE" in
+                "text2vec-transformers"|"text2vec-model2vec") ;;
+                *) modules_without_inference="${modules_without_inference} ${MODULE}" ;;
+            esac
+        done
+        if [[ -n "$modules_without_inference" ]]; then
+            echo_yellow "DEPLOYMENT_METHOD=operator deploys an inference service only for text2vec-transformers and text2vec-model2vec."
+            echo_yellow "These MODULES have no companion inference deployment and may not be functional:${modules_without_inference}"
+        fi
     fi
+}
+
+# In operator mode the operator does not deploy module inference servers, so we
+# apply the same Deployment + Service that weaviate-helm would create. Only the
+# locally-runnable vectorizers are covered (text2vec-transformers,
+# text2vec-model2vec); their manifests live in manifests/ and are namespaced to
+# 'weaviate', so clean() removes them together with the namespace. Idempotent
+# (kubectl apply), so it is safe to call again on upgrade.
+function deploy_operator_module_services() {
+    [[ -z "$MODULES" ]] && return 0
+    IFS=',' read -ra SERVICE_MODULES <<< "$MODULES"
+    for MODULE in "${SERVICE_MODULES[@]}"; do
+        case "$MODULE" in
+            "text2vec-transformers")
+                echo_green "Deploying transformers-inference service (operator mode)"
+                kubectl apply -f "${CURRENT_DIR}/manifests/transformers-inference.yaml"
+                ;;
+            "text2vec-model2vec")
+                echo_green "Deploying model2vec-inference service (operator mode)"
+                kubectl apply -f "${CURRENT_DIR}/manifests/model2vec-inference.yaml"
+                ;;
+            *)
+                : # No operator-managed inference deployment for this module.
+                ;;
+        esac
+    done
 }
 
 function setup_cert_manager() {
@@ -275,6 +316,18 @@ EOF
         IFS=',' read -ra CR_MODULES <<< "$MODULES"
         for MODULE in "${CR_MODULES[@]}"; do
             yq -i '.spec.modules.extra += ["'"$MODULE"'"]' "$WEAVIATE_CR_FILE"
+            # Point Weaviate at the in-cluster inference service we deploy in
+            # operator mode (deploy_operator_module_services). The helm chart
+            # wires the same env vars to the same service DNS names. The service
+            # is in the 'weaviate' namespace, so the short name resolves.
+            case "$MODULE" in
+                "text2vec-transformers")
+                    yq -i '.spec.podConfig.extraEnv += [{"name": "TRANSFORMERS_INFERENCE_API", "value": "http://transformers-inference:8080"}]' "$WEAVIATE_CR_FILE"
+                    ;;
+                "text2vec-model2vec")
+                    yq -i '.spec.podConfig.extraEnv += [{"name": "MODEL2VEC_INFERENCE_API", "value": "http://model2vec-inference:8080"}]' "$WEAVIATE_CR_FILE"
+                    ;;
+            esac
         done
     fi
 

@@ -154,6 +154,8 @@ function upgrade() {
         if [[ $need_minio == "true" ]]; then
             create_minio_credentials_secret
         fi
+        # Idempotent: ensures the module inference servers exist after upgrade.
+        deploy_operator_module_services
         generate_weaviate_cr
         echo_green "upgrade # Applying updated Weaviate CR through the wcs-weaviate-operator"
         deploy_weaviate_cr
@@ -299,6 +301,9 @@ EOF
         if [[ $need_minio == "true" ]]; then
             create_minio_credentials_secret
         fi
+        # The operator does not deploy module inference servers; do it ourselves
+        # before the CR so they are warming up while Weaviate starts.
+        deploy_operator_module_services
         generate_weaviate_cr
         echo_green "setup # Deploying Weaviate through the wcs-weaviate-operator"
         deploy_weaviate_cr
