@@ -90,6 +90,7 @@ All are string `"true"` / `"false"`.
 | `OPERATOR_IMAGE` | `""` | Pre-built controller image (kind-loaded if present locally; skips the build) |
 | `OPERATOR_DIR` | `""` | Local wcs-weaviate-operator checkout to use instead of cloning |
 | `OPERATOR_REPO` | github https URL | Clone URL override (e.g. SSH remote for the private repo) |
+| `OPERATOR_UPGRADE_BACKUP` | `"false"` | Upgrade only: take a pre-upgrade backup via the Upgrade CRD (`skipBackups=false`). Requires `ENABLE_BACKUP=true` (MinIO/s3). Default disables backups |
 | `CERT_MANAGER_VERSION` | `"v1.18.2"` | cert-manager release installed for the operator webhooks |
 | `WEAVIATE_STORAGE_SIZE` | `"32Gi"` | PVC size in the generated Weaviate CR |
 
@@ -104,7 +105,10 @@ into the generated CR; the operator admin API key lives in the
 is applied from `manifests/` and the CR's `TRANSFORMERS_INFERENCE_API`/
 `MODEL2VEC_INFERENCE_API` is wired to it (the operator itself does not ship
 inference servers); other modules needing a companion deployment are enabled in the
-CR but not functional.
+CR but not functional. `upgrade` in operator mode is driven through the operator's
+Upgrade CRD (version-only; the controller blocks downgrades, optionally backs up,
+patches the version and waits for pods healthy at the new version) — set
+`OPERATOR_UPGRADE_BACKUP=true` (with `ENABLE_BACKUP=true`) to back up first.
 
 ## Authentication
 

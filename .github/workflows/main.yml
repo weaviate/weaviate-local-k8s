@@ -14,6 +14,28 @@ jobs:
         - name: Retrieve latest Weaviate version
           id: latest-version
           uses: weaviate/github-common-actions/.github/actions/get-latest-weaviate-version@main
+    # weaviate/wcs-weaviate-operator is a private repository: the operator CI
+    # jobs need a token (WCS_OPERATOR_PAT secret) with read access to clone it.
+    # The secrets context is not available in job-level 'if' conditions, so a
+    # tiny gate job exposes whether the secret is configured. When it is not,
+    # the operator jobs are skipped instead of failing.
+    check-operator-token:
+      runs-on: ubuntu-latest
+      name: Check if the wcs-weaviate-operator token is configured
+      outputs:
+        has-token: ${{ steps.check.outputs.has-token }}
+      steps:
+        - name: Check for WCS_OPERATOR_PAT secret
+          id: check
+          env:
+            OPERATOR_TOKEN: ${{ secrets.WCS_OPERATOR_PAT }}
+          run: |
+            if [ -n "$OPERATOR_TOKEN" ]; then
+              echo "has-token=true" >> $GITHUB_OUTPUT
+            else
+              echo "has-token=false" >> $GITHUB_OUTPUT
+              echo "::warning::WCS_OPERATOR_PAT secret is not configured; skipping wcs-weaviate-operator CI jobs"
+            fi
     run-weaviate-local-k8s-basic:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
@@ -1057,28 +1079,6 @@ jobs:
             for pid in ${SQUAT_PIDS:-}; do
               kill "$pid" || true
             done
-    # weaviate/wcs-weaviate-operator is a private repository: the operator CI
-    # jobs need a token (WCS_OPERATOR_PAT secret) with read access to clone it.
-    # The secrets context is not available in job-level 'if' conditions, so a
-    # tiny gate job exposes whether the secret is configured. When it is not,
-    # the operator jobs are skipped instead of failing.
-    check-operator-token:
-      runs-on: ubuntu-latest
-      name: Check if the wcs-weaviate-operator token is configured
-      outputs:
-        has-token: ${{ steps.check.outputs.has-token }}
-      steps:
-        - name: Check for WCS_OPERATOR_PAT secret
-          id: check
-          env:
-            OPERATOR_TOKEN: ${{ secrets.WCS_OPERATOR_PAT }}
-          run: |
-            if [ -n "$OPERATOR_TOKEN" ]; then
-              echo "has-token=true" >> $GITHUB_OUTPUT
-            else
-              echo "has-token=false" >> $GITHUB_OUTPUT
-              echo "::warning::WCS_OPERATOR_PAT secret is not configured; skipping wcs-weaviate-operator CI jobs"
-            fi
     run-weaviate-local-k8s-operator-basic:
       needs: [get-latest-weaviate-version, check-operator-token]
       if: needs.check-operator-token.outputs.has-token == 'true'
@@ -1331,7 +1331,7 @@ jobs:
       needs: [get-latest-weaviate-version, check-operator-token]
       if: needs.check-operator-token.outputs.has-token == 'true'
       runs-on: ubuntu-latest
-      name: Invoke weaviate-local-k8s operator deployment and upgrade Weaviate via the CR
+      name: Invoke weaviate-local-k8s operator deployment and upgrade Weaviate via the Upgrade CRD
       env:
         WORKERS: '1'
         REPLICAS: '3'
@@ -1350,7 +1350,7 @@ jobs:
             replicas: ${{ env.REPLICAS }}
             weaviate-version: ${{ env.WEAVIATE_VERSION }}
             expose-pods: 'false'
-        - name: Upgrade Weaviate via the operator CR.
+        - name: Upgrade Weaviate via the operator Upgrade CRD.
           uses: ./
           with:
             operation: upgrade
@@ -1377,6 +1377,76 @@ jobs:
                     exit 1
                 fi
             done
+            # The upgrade must have been driven through the operator's Upgrade CRD
+            # (default path: skipBackups=true, no backup backend required).
+            upgrade_phase=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.phase}')
+            if [[ "$upgrade_phase" != "Success" ]]; then
+                echo "Error: expected an Upgrade CR in phase Success, found '$upgrade_phase'"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+    run-weaviate-local-k8s-operator-upgrade-backup:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator upgrade with a pre-upgrade backup (Upgrade CRD)
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: '1.36.0'
+        UPGRADE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator (backup backend enabled).
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            enable-backup: 'true'
+            expose-pods: 'false'
+        - name: Upgrade via the Upgrade CRD taking a pre-upgrade backup.
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            enable-backup: 'true'
+            operator-upgrade-backup: 'true'
+            expose-pods: 'false'
+        - name: Check the upgrade succeeded and recorded a backup
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=120s
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            versions=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq -r '.nodes[].version')
+            for version in $versions; do
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            # The Upgrade CR must have succeeded AND recorded a pre-upgrade backup
+            # (skipBackups=false because operator-upgrade-backup=true).
+            phase=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.phase}')
+            if [[ "$phase" != "Success" ]]; then
+                echo "Error: Upgrade CR phase is '$phase', expected Success"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+            backup_name=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.lastBackupName}')
+            if [[ -z "$backup_name" ]]; then
+                echo "Error: Upgrade did not record a backup (lastBackupName empty) despite operator-upgrade-backup=true"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+            echo "Upgrade succeeded with pre-upgrade backup: $backup_name"
     run-weaviate-local-k8s-operator-prebuilt-image:
       needs: [get-latest-weaviate-version, check-operator-token]
       if: needs.check-operator-token.outputs.has-token == 'true'

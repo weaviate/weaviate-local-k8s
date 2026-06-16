@@ -142,6 +142,10 @@ inputs:
     description: 'Path to a local wcs-weaviate-operator checkout to use instead of cloning (e.g. the workspace checkout when running from the operator repository CI)'
     required: false
     default: ''
+  operator-upgrade-backup:
+    description: 'Operator mode: take a backup before an upgrade via the Upgrade CRD (skipBackups=false). Requires enable-backup=true. Default: false (skipBackups=true).'
+    required: false
+    default: 'false'
   github-token:
     description: 'Token with read access to weaviate/wcs-weaviate-operator (private). Required when deployment-method=operator and no operator-dir is provided.'
     required: false
@@ -197,6 +201,7 @@ runs:
         OPERATOR_BRANCH: ${{ inputs.operator-branch }}
         OPERATOR_IMAGE: ${{ inputs.operator-image }}
         OPERATOR_DIR: ${{ inputs.operator-dir }}
+        OPERATOR_UPGRADE_BACKUP: ${{ inputs.operator-upgrade-backup }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         # Retry configuration

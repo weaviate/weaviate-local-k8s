@@ -220,6 +220,13 @@ Operator-mode rules:
   create) and wires the CR `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API`
   env var to it. Other modules needing a companion deployment are enabled in the
   CR but not functional (warned at setup).
+- `upgrade` is driven through the operator's **Upgrade CRD** (its canonical
+  mechanism), not by re-applying the Weaviate CR. It is **version-only**: the
+  controller blocks downgrades, optionally backs up, patches the version and waits
+  for all pods to be healthy at the new version. Other config changes are NOT
+  re-applied on upgrade — edit the CR / `cr-override.yaml` or re-run setup for those.
+  Pre-upgrade backups are OFF by default; set `OPERATOR_UPGRADE_BACKUP=true`
+  (needs `ENABLE_BACKUP=true`) to take a backup first.
 
 ### Build and Deploy from Local Weaviate Source
 

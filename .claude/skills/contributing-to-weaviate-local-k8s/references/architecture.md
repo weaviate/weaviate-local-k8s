@@ -139,10 +139,11 @@ shared between both methods.
 | `setup_cert_manager()` | Installs cert-manager (operator webhooks need it, failurePolicy=Fail) |
 | `setup_operator()` | Resolves sources (OPERATOR_DIR > clone OPERATOR_BRANCH), resolves image (OPERATOR_IMAGE or docker build), kind-loads, renders dist/install.yaml (image replace + ServiceMonitor strip when CRD absent), applies with retries, waits for controller |
 | `create_minio_credentials_secret()` | Secret consumed by spec.cloudAuth.aws.credentials |
-| `deploy_operator_module_services()` | Deploys the inference Deployment+Service for local vectorizers the operator does not ship — `text2vec-transformers` -> `manifests/transformers-inference.yaml`, `text2vec-model2vec` -> `manifests/model2vec-inference.yaml` (idempotent kubectl apply; called before the CR in setup/upgrade) |
-| `generate_weaviate_cr()` | Env vars -> /tmp/weaviate-cr.yaml (yq-built), merges cr-override.yaml. For local vectorizer MODULES also appends `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API` to `spec.podConfig.extraEnv` pointing at the in-cluster service |
+| `deploy_operator_module_services()` | Deploys the inference Deployment+Service for local vectorizers the operator does not ship — `text2vec-transformers` -> `manifests/transformers-inference.yaml`, `text2vec-model2vec` -> `manifests/model2vec-inference.yaml` (idempotent kubectl apply; called before the CR in setup) |
+| `generate_weaviate_cr()` | Env vars -> /tmp/weaviate-cr.yaml (yq-built), merges cr-override.yaml (setup only). For local vectorizer MODULES also appends `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API` to `spec.podConfig.extraEnv` pointing at the in-cluster service |
 | `deploy_weaviate_cr()` | kubectl apply with retries (webhook warm-up) |
-| `wait_for_operator_sts_image()` | Upgrade: waits until the operator reconciles the new image into the STS template |
+| `upgrade_weaviate_via_operator()` | Upgrade path: creates an `Upgrade` CR (`/tmp/weaviate-upgrade.yaml`, version-only) — the operator's canonical mechanism. `skipBackups: true` unless `OPERATOR_UPGRADE_BACKUP=true` (then `backend: s3`, needs `ENABLE_BACKUP=true`). Clears prior Upgrades (webhook single-flight), applies with retries |
+| `wait_for_upgrade_cr_complete()` | Polls `Upgrade.status.phase` until `Success`; aborts on `Failed`/`Cancelled`/timeout (scales with REPLICAS) |
 | `wait_for_weaviate_cr_ready()` | kubectl wait --for=condition=Ready on the CR |
 | `log_operator_debug_info()` | CR yaml + operator pods/logs dump on failure |
 

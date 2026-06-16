@@ -10,6 +10,7 @@
 OPERATOR_NAMESPACE="wcs-weaviate-operator-system"
 OPERATOR_DEPLOYMENT="wcs-weaviate-operator-controller-manager"
 WEAVIATE_CR_FILE="/tmp/weaviate-cr.yaml"
+UPGRADE_CR_FILE="/tmp/weaviate-upgrade.yaml"
 MINIO_SECRET_NAME="minio-credentials"
 
 # Fail fast on configurations the operator cannot express. Everything listed
@@ -362,23 +363,104 @@ function deploy_weaviate_cr() {
     fi
 }
 
-# After an upgrade the operator has to reconcile the CR change into the
-# StatefulSet before 'kubectl rollout status' means anything. Wait until the
-# StatefulSet pod template references the expected weaviate image.
-function wait_for_operator_sts_image() {
-    local expected_image="${WEAVIATE_IMAGE_PREFIX}/weaviate:${WEAVIATE_VERSION}"
-    echo_green "Waiting for operator to roll StatefulSet to image ${expected_image}"
-    for _ in {1..60}; do
-        local current_image
-        current_image=$(kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[?(@.name=="weaviate")].image}' 2>/dev/null || true)
-        if [[ "$current_image" == "$expected_image" ]]; then
-            echo_green "StatefulSet template updated to ${expected_image}"
-            return
+# Upgrades a running Weaviate to ${WEAVIATE_VERSION} through the operator's
+# Upgrade CRD (database.weaviate.io/v1alpha1 Upgrade) instead of patching the
+# Weaviate CR directly. This is the operator's canonical upgrade path: the
+# Upgrade controller optionally takes a backup, patches the Weaviate version and
+# waits for every pod to be healthy at the new version (it also blocks
+# downgrades and enforces single-flight). Only the version is changed here.
+#
+# Pre-upgrade backups are off by default (skipBackups: true). Set
+# OPERATOR_UPGRADE_BACKUP=true to take a backup first; that needs a backup
+# backend, which weaviate-local-k8s only wires up (MinIO/s3) when ENABLE_BACKUP=true.
+function upgrade_weaviate_via_operator() {
+    local skip_backups="true"
+    local backend_line=""
+    if [[ "$OPERATOR_UPGRADE_BACKUP" == "true" ]]; then
+        if [[ "$ENABLE_BACKUP" != "true" ]]; then
+            echo_red "OPERATOR_UPGRADE_BACKUP=true needs a backup backend; re-run the upgrade with ENABLE_BACKUP=true (MinIO/s3)."
+            exit 1
         fi
-        echo_yellow "StatefulSet image is '${current_image:-<none>}', waiting for operator reconcile..."
+        skip_backups="false"
+        backend_line="  backend: s3"
+        echo_green "upgrade # Pre-upgrade backup ENABLED (Upgrade CRD, backend: s3)"
+    else
+        echo_green "upgrade # Pre-upgrade backup disabled (Upgrade CRD, skipBackups: true)"
+    fi
+
+    # k8s object names must be RFC1123: lowercase, dots -> dashes.
+    local version_slug="${WEAVIATE_VERSION//./-}"
+    local upgrade_name="weaviate-upgrade-${version_slug}"
+
+    # The validating webhook allows only one in-flight Upgrade per Weaviate.
+    # Clear any previous Upgrade objects so repeated upgrades are idempotent.
+    kubectl delete upgrades.database.weaviate.io --all -n weaviate --ignore-not-found --timeout=120s || true
+
+    cat <<EOF > "$UPGRADE_CR_FILE"
+apiVersion: database.weaviate.io/v1alpha1
+kind: Upgrade
+metadata:
+  name: ${upgrade_name}
+  namespace: weaviate
+spec:
+  weaviateName: weaviate
+  versions:
+    - "${WEAVIATE_VERSION}"
+  skipBackups: ${skip_backups}
+${backend_line}
+EOF
+
+    echo_green "upgrade # Applying Upgrade CR: \n$(cat "$UPGRADE_CR_FILE")"
+    local applied="false"
+    for _ in {1..30}; do
+        if kubectl apply -f "$UPGRADE_CR_FILE"; then
+            applied="true"
+            break
+        fi
+        echo_yellow "Failed to apply Upgrade CR (operator webhook warming up?), retrying in 5s..."
         sleep 5
     done
-    echo_red "Operator did not update the StatefulSet to ${expected_image} in time"
+    if [[ "$applied" != "true" ]]; then
+        echo_red "Could not apply the Upgrade CR"
+        log_operator_debug_info
+        exit 1
+    fi
+
+    wait_for_upgrade_cr_complete "$upgrade_name"
+}
+
+# Polls an Upgrade resource until it reaches a terminal phase. Returns on
+# Success; aborts (with the operator debug dump) on Failed/Cancelled or timeout.
+# The timeout scales with REPLICAS since the controller rolls pods one version
+# at a time and waits for each to be healthy.
+function wait_for_upgrade_cr_complete() {
+    local name="$1"
+    local timeout=$((600 + REPLICAS * 120))
+    local waited=0
+    echo_green "upgrade # Waiting (timeout=${timeout}s) for Upgrade ${name} to complete"
+    while [[ "$waited" -lt "$timeout" ]]; do
+        local phase
+        phase=$(kubectl get upgrade "$name" -n weaviate -o jsonpath='{.status.phase}' 2>/dev/null || true)
+        case "$phase" in
+            Success)
+                echo_green "upgrade # Upgrade ${name} completed (phase=Success)"
+                return 0
+                ;;
+            Failed|Cancelled)
+                local err
+                err=$(kubectl get upgrade "$name" -n weaviate -o jsonpath='{.status.error}' 2>/dev/null || true)
+                echo_red "upgrade # Upgrade ${name} ended in phase=${phase}: ${err:-<no message>}"
+                log_operator_debug_info
+                exit 1
+                ;;
+            *)
+                echo_yellow "upgrade # Upgrade ${name} phase=${phase:-<pending>} (${waited}s/${timeout}s)"
+                ;;
+        esac
+        sleep 10
+        waited=$((waited + 10))
+    done
+    echo_red "upgrade # Upgrade ${name} did not complete within ${timeout}s"
     log_operator_debug_info
     exit 1
 }
@@ -397,6 +479,8 @@ function log_operator_debug_info() {
     echo_yellow "---------- wcs-weaviate-operator debug dump ----------"
     echo_yellow "[CR] weaviate/weaviate:"
     kubectl get weaviate weaviate -n weaviate -o yaml 2>/dev/null || echo_yellow "Weaviate CR not found"
+    echo_yellow "[Upgrade] upgrades.database.weaviate.io:"
+    kubectl get upgrades.database.weaviate.io -n weaviate -o yaml 2>/dev/null || true
     echo_yellow "[Operator] deployment + pods:"
     kubectl get deployment,pods -n "$OPERATOR_NAMESPACE" -o wide 2>/dev/null || true
     echo_yellow "[Operator] last logs:"

@@ -238,8 +238,34 @@ DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.36.8" REPLICAS=3 ./local-k8s.sh s
 DEPLOYMENT_METHOD=operator OPERATOR_DIR=~/repos/wcs-weaviate-operator WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
 DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-7" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
 
-# Upgrade: re-apply the CR with the new version
+# Upgrade: driven through the operator's Upgrade CRD (version-only)
 DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 ./local-k8s.sh upgrade
+
+# Upgrade with a pre-upgrade backup (needs ENABLE_BACKUP=true for an s3 backend)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.37.0" REPLICAS=3 \
+  ENABLE_BACKUP=true OPERATOR_UPGRADE_BACKUP=true ./local-k8s.sh upgrade
+```
+
+### Operator-mode upgrades (Upgrade CRD)
+
+`upgrade` in operator mode does NOT re-apply the Weaviate CR. It creates an
+`Upgrade` resource (`database.weaviate.io/v1alpha1`, named
+`weaviate-upgrade-<version>`) — the operator's canonical upgrade mechanism. The
+Upgrade controller blocks downgrades, optionally takes a backup, patches
+`weaviate.spec.version` and waits for every pod to be healthy at the new version
+before completing. The script polls `Upgrade.status.phase` until `Success` (and
+aborts on `Failed`/`Cancelled`). It is **version-only** — other config changes
+(modules, auth, resources) are not applied on upgrade; edit the CR /
+`cr-override.yaml` or re-run `setup` for those.
+
+Backups are off by default (`skipBackups: true`). `OPERATOR_UPGRADE_BACKUP=true`
+flips `skipBackups` to false and sets `backend: s3`, which requires a configured
+backup backend (`ENABLE_BACKUP=true`, i.e. MinIO). Verify:
+
+```bash
+kubectl get upgrades.database.weaviate.io -n weaviate
+kubectl get upgrade -n weaviate -o jsonpath='{.items[0].status.phase}'        # Success
+kubectl get upgrade -n weaviate -o jsonpath='{.items[0].status.lastBackupName}' # set when backed up
 ```
 
 ### Local vectorizer modules in operator mode

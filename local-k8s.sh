@@ -80,6 +80,10 @@ OPERATOR_BRANCH=${OPERATOR_BRANCH:-"main"}
 OPERATOR_IMAGE=${OPERATOR_IMAGE:-""}
 OPERATOR_DIR=${OPERATOR_DIR:-""}
 OPERATOR_REPO=${OPERATOR_REPO:-"https://github.com/weaviate/wcs-weaviate-operator.git"}
+# Operator-mode upgrades go through the operator's Upgrade CRD. Pre-upgrade
+# backups are disabled by default (skipBackups: true); set to "true" to take a
+# backup before the version change (requires a backup backend, i.e. ENABLE_BACKUP=true).
+OPERATOR_UPGRADE_BACKUP=${OPERATOR_UPGRADE_BACKUP:-"false"}
 CERT_MANAGER_VERSION=${CERT_MANAGER_VERSION:-"v1.18.2"}
 WEAVIATE_STORAGE_SIZE=${WEAVIATE_STORAGE_SIZE:-"32Gi"}
 
@@ -151,17 +155,12 @@ function upgrade() {
     start_weaviate_pod_state_logger || true
 
     if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
-        if [[ $need_minio == "true" ]]; then
-            create_minio_credentials_secret
-        fi
-        # Idempotent: ensures the module inference servers exist after upgrade.
-        deploy_operator_module_services
-        generate_weaviate_cr
-        echo_green "upgrade # Applying updated Weaviate CR through the wcs-weaviate-operator"
-        deploy_weaviate_cr
-        # The operator reconciles the CR change into the StatefulSet; wait for
-        # the pod template to reference the new image before watching rollout.
-        wait_for_operator_sts_image
+        # Version changes go through the operator's Upgrade CRD (its canonical
+        # mechanism: optional pre-upgrade backup, patches the Weaviate version
+        # and waits for every pod to be healthy at the new version). This is a
+        # version-only upgrade; other config changes are not re-applied here
+        # (edit the Weaviate CR / cr-override.yaml or re-run setup for those).
+        upgrade_weaviate_via_operator
     else
         # This function sets up weaviate-helm and sets the global env var $TARGET
         setup_helm $HELM_BRANCH
