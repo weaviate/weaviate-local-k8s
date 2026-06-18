@@ -343,6 +343,8 @@ function is_auth_enabled() {
 }
 
 function get_bearer_token() {
+    # Declare locals so these do not leak into the global shell scope.
+    local env_bearer_tokens bearer_token secret_name secret_key secret_tokens config
     # Check if auth is enabled via env var first (simpler case)
 
     # if AUTHENTICATION_APIKEY_ALLOWED_KEYS is set, use the first one

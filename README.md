@@ -266,7 +266,9 @@ In GitHub Actions workflows:
 - name: Checkout operator PR
   uses: actions/checkout@v4
 - name: Build operator image
-  run: docker build --build-arg VERSION=pr -t wcs-weaviate-operator:pr .
+  # buildx (BuildKit) is required: the operator's allowlist-style .dockerignore
+  # is mishandled by the legacy builder; --load exports the image to the daemon.
+  run: docker buildx build --load --build-arg VERSION=pr -t wcs-weaviate-operator:pr .
 - name: Deploy Weaviate through the operator
   uses: weaviate/weaviate-local-k8s@v2
   with:

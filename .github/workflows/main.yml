@@ -1517,8 +1517,19 @@ jobs:
           env:
             GH_TOKEN: ${{ secrets.WCS_OPERATOR_PAT }}
           run: |
-            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/weaviate/wcs-weaviate-operator.git" /tmp/operator-src
-            docker build --build-arg VERSION=ci-prebuilt -t ${{ env.OPERATOR_IMAGE }} /tmp/operator-src
+            # Authenticate via GIT_ASKPASS so the token never lands on the command
+            # line (argv/process list/logs), matching the operator clone in
+            # utilities/operator.sh. The helper just echoes the token from the env.
+            askpass="$(mktemp)"
+            printf '#!/bin/sh\nexec echo "$GIT_ASKPASS_TOKEN"\n' > "$askpass"
+            chmod +x "$askpass"
+            GIT_ASKPASS_TOKEN="$GH_TOKEN" GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
+              git clone -b main --depth 1 "https://x-access-token@github.com/weaviate/wcs-weaviate-operator.git" /tmp/operator-src
+            rm -f "$askpass"
+            # buildx (BuildKit) is required: the operator's allowlist .dockerignore
+            # is mishandled by the legacy builder. --load exports the image to the
+            # local daemon so the action can kind-load it.
+            docker buildx build --load --build-arg VERSION=ci-prebuilt -t ${{ env.OPERATOR_IMAGE }} /tmp/operator-src
         - name: Deploy weaviate-local-k8s with the pre-built operator image.
           id: invoke-local-k8s
           uses: ./
