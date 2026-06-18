@@ -95,7 +95,8 @@ jobs:
         WEAVIATE_GRPC_PORT: '50052'
         MCP: 'true'
         MCP_WRITE_ACCESS: 'true'
-        HELM_BRANCH: 'main'
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
         S3_OFFLOAD: 'true'
         MODULES: 'text2vec-model2vec'
         ENABLE_BACKUP: 'true'
@@ -107,6 +108,7 @@ jobs:
         DYNAMIC_USERS: 'true'
         AUTH_CONFIG: '/tmp/rbac-config.yaml'
         EXPOSE_PODS: 'true'
+        NAMESPACES: 'true'
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -145,11 +147,14 @@ jobs:
                 groups_claim: groups
                 client_id: demo
                 skip_client_id_check: false
+                namespace_claim: weaviate_namespace
+                global_principal_claim: weaviate_global_principal
             authorization:
               rbac:
                 enabled: true
                 root_users:
                   - admin
+                  - admin-oidc
               admin_list:
                 enabled: false
             EOF
@@ -180,6 +185,7 @@ jobs:
             expose-pods: ${{ env.EXPOSE_PODS }}
             mcp: ${{ env.MCP }}
             mcp-write-access: ${{ env.MCP_WRITE_ACCESS }}
+            namespaces: ${{ env.NAMESPACES }}
         - name: Check the configured values
           run: |
               set -ex
@@ -277,22 +283,74 @@ jobs:
                   echo "Error: runtime overrides ConfigMap does not contain '@every 10s'. Found: $configmap_data"
                   exit 1
               fi
-              echo "Create a collection for export"
+              # On a namespaces-enabled cluster, schema mutations are rejected for
+              # global/static principals with "must be namespaced": only a
+              # namespaced user can create a collection, which is then stored
+              # qualified as "<namespace>:<Collection>". Collection export, by
+              # contrast, is an operator action that runs as the admin-key root
+              # user against the qualified name. So: create the collection with a
+              # namespaced user's token, but run the export as admin-key.
+              NS=exportns
+              NS_USER=export-oidc
+              # The OIDC principal is the email claim (username_claim: email) and
+              # create_oidc_user.sh sets the email to "<user>@gmail.com".
+              NS_PRINCIPAL="${NS_USER}@gmail.com"
+              echo "Register the namespace (home_node is optional; auto-assigned)"
+              curl --fail-with-body -X POST -H "Authorization: Bearer admin-key" \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/namespaces/$NS
+              echo "Create the namespaced OIDC user"
+              bash ./scripts/create_oidc_user.sh -u $NS_USER -n $NS
+              echo "Create a role granting collection permissions"
+              # Built-in admin/viewer roles cannot be assigned to namespaced users,
+              # so grant the needed permissions through a custom role.
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
-                -d '{"class": "ExportTest"}' \
-                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema
-              echo "Insert an object so the export has data"
+                -d '{"name":"exportns-admin","permissions":[
+                      {"action":"create_collections","collections":{"collection":"*"}},
+                      {"action":"read_collections","collections":{"collection":"*"}},
+                      {"action":"create_data","data":{"collection":"*"}},
+                      {"action":"read_data","data":{"collection":"*"}}]}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/authz/roles
+              echo "Assign the role to the namespace-qualified principal"
+              # Role assignment to namespaced users requires the qualified id
+              # "<namespace>:<principal>".
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
-                -d '{"class": "ExportTest", "properties": {}}' \
+                -d '{"roles":["exportns-admin"]}' \
+                http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/authz/users/$NS:$NS_PRINCIPAL/assign
+              echo "Fetch the namespaced user's OIDC token"
+              NS_TOKEN=$(bash ./scripts/get_user_token.sh -u $NS_USER)
+              echo "Create a collection for export (namespaced user, short name)"
+              # Namespace and role propagation are asynchronous, so retry until
+              # both the namespace exists (401 clears) and the role applies (403
+              # clears) and the create returns 200.
+              code=""
+              for i in $(seq 1 15); do
+                code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+                  -H "Authorization: Bearer $NS_TOKEN" \
+                  -d '{"class": "ExportTest"}' \
+                  http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/schema)
+                if [[ "$code" == "200" ]]; then break; fi
+                echo "namespaced collection create not ready yet (HTTP $code), retry $i/15"
+                sleep 2
+              done
+              if [[ "$code" != "200" ]]; then
+                echo "Error: namespaced collection create failed (HTTP $code)"
+                exit 1
+              fi
+              echo "Insert an object so the export has data (operator, qualified name)"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer admin-key" \
+                -d '{"class": "exportns:ExportTest", "properties": {}}' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/objects
-              echo "Create a collection export"
+              echo "Create a collection export (operator, qualified name)"
+              # The export API is not namespace-aware, so include must reference
+              # the qualified collection name.
               curl --fail-with-body -X POST -H "Content-Type: application/json" \
                 -H "Authorization: Bearer admin-key" \
                 -d '{
                     "id": "test-collection-export",
-                    "include": ["ExportTest"],
+                    "include": ["exportns:ExportTest"],
                     "file_format": "parquet"
                     }' \
                 http://127.0.0.1:${{ env.WEAVIATE_PORT }}/v1/export/s3
@@ -786,7 +844,18 @@ jobs:
             # Force delete pod weaviate-2
             kubectl delete pod weaviate-2 -n weaviate --force --grace-period=0
 
-            # Wait for pod to be recreated
+            # Wait for the StatefulSet to recreate the pod before waiting on
+            # readiness. --force --grace-period=0 removes the pod object
+            # instantly, so it can be briefly absent and
+            # `kubectl wait --for=condition=ready` would error out with
+            # "NotFound" instead of waiting for it to reappear.
+            for i in {1..30}; do
+              kubectl get pod weaviate-2 -n weaviate >/dev/null 2>&1 && break
+              echo "weaviate-2 not recreated yet, retry $i/30"
+              sleep 2
+            done
+
+            # Wait for pod to be ready
             kubectl wait --for=condition=ready pod/weaviate-2 -n weaviate --timeout=3m
 
             echo "Wait for Weaviate to be ready"
@@ -906,15 +975,156 @@ jobs:
                 echo "Error: Failed to authenticate with the keycloak"
                 exit 1
             fi
-            TOKEN=$( echo "$auth_info" | jq -r .access_token )
-            # Check that it possible to create a user
-            curl -s -X POST -d '{"username":"test-user", "enabled":true, "email":"test-user@example.com", "emailVerified":true, "credentials":[{"type":"password","value":"test-password"}]}' \
-            -H "Authorization: Bearer $TOKEN" \
-            -H 'Content-Type: application/json' \
-            http://keycloak.oidc.svc.cluster.local:9090/admin/realms/weaviate/users
-            if [[ $? -ne 0 ]]; then
+            # Create a plain user via the helper script. This exercises the
+            # script's no-attribute path so the realm changes for namespaces
+            # don't silently break OIDC-only flows.
+            if ! bash ./scripts/create_oidc_user.sh -u test-user; then
                 echo "Error: Failed to create a user"
                 exit 1
+            fi
+            # Fetch a token for that user to confirm the demo client still
+            # issues tokens after the realm changes for namespaces.
+            TOKEN=$(bash ./scripts/get_user_token.sh -u test-user)
+            if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+                echo "Error: Failed to get token for test-user"
+                exit 1
+            fi
+    run-weaviate-local-k8s-namespaces:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with namespaces enabled
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            rbac: 'true'
+            namespaces: 'true'
+            helm-branch: ${{ env.HELM_BRANCH }} # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        - name: Verify namespaces are enabled and GraphQL is disabled
+          run: |
+            set -x
+            # DISABLE_GRAPHQL=true keeps the route registered but the handler
+            # rejects all requests with 410.
+            graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
+            if [[ "$graphql_status" -ne 410 ]]; then
+              echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
+              exit 1
+            fi
+            namespaces_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" http://127.0.0.1:8080/v1/namespaces)
+            if [[ "$namespaces_status" -ne 200 ]]; then
+              echo "Error: Namespaces endpoint should be reachable (expected 200), got $namespaces_status"
+              exit 1
+            fi
+    run-weaviate-local-k8s-namespaces-oidc:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with namespaces and OIDC enabled
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        HELM_BRANCH: 'jose/namespaces'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            namespaces: 'true'
+            rbac: 'true'
+            oidc: 'true'
+            helm-branch: ${{ env.HELM_BRANCH }} # TODO(REMOVE BEFORE MERGE): once new weaviate-helm branch is released, remove this and use the latest version.
+        - name: Verify OIDC + namespaces wiring end-to-end
+          run: |
+            set -x
+            # Sanity: GraphQL must be off when namespaces are on.
+            # DISABLE_GRAPHQL=true keeps the route registered but the handler
+            # rejects all requests with 410.
+            graphql_status=$(curl -s -o /dev/null -H "Authorization: Bearer admin-key" -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/graphql -H "Content-Type: application/json" -d '{"query":"{__typename}"}')
+            if [[ "$graphql_status" -ne 410 ]]; then
+              echo "Error: GraphQL endpoint should be disabled (expected 410), got $graphql_status"
+              exit 1
+            fi
+            # Create a global operator and a namespaced user via the helper
+            # script. This is the only place that exercises the new -G / -n
+            # flags and the new realm attribute mappers together.
+            if ! bash ./scripts/create_oidc_user.sh -u admin-oidc -G; then
+              echo "Error: Failed to create global operator user"
+              exit 1
+            fi
+            if ! bash ./scripts/create_oidc_user.sh -u customer1-oidc -n customer1; then
+              echo "Error: Failed to create namespaced user"
+              exit 1
+            fi
+            # Fetch tokens for both. The whole point of this job is to prove
+            # that the demo client now emits weaviate_namespace /
+            # weaviate_global_principal claims when the user has them set.
+            ADMIN_TOKEN=$(bash ./scripts/get_user_token.sh -u admin-oidc)
+            NS_TOKEN=$(bash ./scripts/get_user_token.sh -u customer1-oidc)
+            if [[ -z "$ADMIN_TOKEN" || "$ADMIN_TOKEN" == "null" ]]; then
+              echo "Error: Failed to get token for admin-oidc"
+              exit 1
+            fi
+            if [[ -z "$NS_TOKEN" || "$NS_TOKEN" == "null" ]]; then
+              echo "Error: Failed to get token for customer1-oidc"
+              exit 1
+            fi
+            # Decode the JWT payload (2nd dot-separated segment, base64url).
+            # Pad to a multiple of 4 chars before decoding.
+            decode_jwt() {
+              local payload
+              payload=$(echo -n "$1" | cut -d. -f2 | tr '_-' '/+')
+              local pad=$(( 4 - ${#payload} % 4 ))
+              [[ $pad -ne 4 ]] && payload="${payload}$(printf '=%.0s' $(seq 1 $pad))"
+              echo -n "$payload" | base64 -d 2>/dev/null
+            }
+            admin_claims=$(decode_jwt "$ADMIN_TOKEN")
+            ns_claims=$(decode_jwt "$NS_TOKEN")
+            echo "admin claims: $admin_claims"
+            echo "namespaced claims: $ns_claims"
+            # Global operator token must carry weaviate_global_principal=true
+            # and must NOT carry weaviate_namespace.
+            if [[ "$(echo "$admin_claims" | jq -r '.weaviate_global_principal')" != "true" ]]; then
+              echo "Error: admin-oidc token missing weaviate_global_principal=true claim"
+              exit 1
+            fi
+            if [[ "$(echo "$admin_claims" | jq -r '.weaviate_namespace // "absent"')" != "absent" ]]; then
+              echo "Error: admin-oidc token unexpectedly carries weaviate_namespace claim"
+              exit 1
+            fi
+            # Namespaced user token must carry weaviate_namespace=customer1
+            # and must NOT carry weaviate_global_principal.
+            if [[ "$(echo "$ns_claims" | jq -r '.weaviate_namespace')" != "customer1" ]]; then
+              echo "Error: customer1-oidc token missing weaviate_namespace=customer1 claim"
+              exit 1
+            fi
+            if [[ "$(echo "$ns_claims" | jq -r '.weaviate_global_principal // "absent"')" != "absent" ]]; then
+              echo "Error: customer1-oidc token unexpectedly carries weaviate_global_principal claim"
+              exit 1
+            fi
+            # Namespaces endpoint must be reachable (auth is anonymous-deny
+            # but the route itself must exist when NAMESPACES_ENABLED=true).
+            namespaces_status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/namespaces -H "Authorization: Bearer $ADMIN_TOKEN")
+            if [[ "$namespaces_status" -ne 200 && "$namespaces_status" -ne 403 ]]; then
+              echo "Error: /v1/namespaces returned $namespaces_status (expected 200 or 403)"
+              exit 1
             fi
     run-weaviate-local-k8s-port-in-use:
       needs: get-latest-weaviate-version

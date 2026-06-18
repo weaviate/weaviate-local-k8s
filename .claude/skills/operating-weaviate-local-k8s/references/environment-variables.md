@@ -71,6 +71,7 @@ All are string `"true"` / `"false"`.
 | `DEBUG` | `"false"` | Enables `set -x` in scripts | |
 | `MCP_ENABLED` | `"false"` | Enable MCP server (accessible via `/v1/mcp`) | |
 | `MCP_WRITE_ACCESS_ENABLED` | `"false"` | Enable MCP write access (object upsert) | Requires `MCP_ENABLED=true` |
+| `NAMESPACES` | `"false"` | Enable namespaces (virtual clusters). Sets `NAMESPACES_ENABLED=true` and `DISABLE_GRAPHQL=true` on the Weaviate container. Combined with `OIDC=true`, also wires `authentication.oidc.namespace_claim=weaviate_namespace` and `authentication.oidc.global_principal_claim=weaviate_global_principal` (required by Weaviate when both features are on) | GraphQL is incompatible with namespaces |
 | `DELETE_STS` | `"false"` | Delete StatefulSet on upgrade (destructive) | |
 
 ## Images and Modules
@@ -110,3 +111,5 @@ All are string `"true"` / `"false"`.
 5. Any of `ENABLE_BACKUP`, `S3_OFFLOAD`, `USAGE_S3` being `true` triggers MinIO deployment
 6. `rbac` and `admin_list` are mutually exclusive in Helm auth config
 7. `MCP_WRITE_ACCESS_ENABLED=true` requires `MCP_ENABLED=true`
+8. `NAMESPACES=true` automatically disables GraphQL (`DISABLE_GRAPHQL=true`) — this is enforced by Weaviate at startup
+9. `NAMESPACES=true` + `OIDC=true` requires both `namespace_claim` and `global_principal_claim` to be set; helpers.sh sets them automatically (mandatory per Weaviate startup invariant)

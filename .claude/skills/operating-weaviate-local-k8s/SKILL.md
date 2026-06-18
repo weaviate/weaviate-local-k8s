@@ -55,6 +55,8 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 | Custom Helm values | `VALUES_INLINE="--set key=value"` (see VALUES_INLINE section) |
 | MCP server | `MCP_ENABLED=true` |
 | MCP with write access | `MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true` |
+| Namespaces (virtual clusters) | `NAMESPACES=true` (auto-disables GraphQL) |
+| Namespaces + OIDC | `NAMESPACES=true OIDC=true` (wires `namespace_claim` / `global_principal_claim`; use `create_oidc_user.sh -G` or `-n NS`) |
 | Test from local source | Build image + `--local-images` (see Build from Local Source) |
 
 ### Timeout Estimation
@@ -164,6 +166,32 @@ MCP is exposed through the Weaviate REST endpoint at `http://localhost:8080/v1/m
 ```bash
 WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true ./local-k8s.sh setup
 ```
+
+### With Namespaces (Virtual Clusters)
+
+```bash
+WEAVIATE_VERSION="1.28.0" NAMESPACES=true ./local-k8s.sh setup
+```
+
+Namespaces allow creating virtual clusters in a shared Weaviate infrastructure. Setting `NAMESPACES=true` automatically sets `NAMESPACES_ENABLED=true` and `DISABLE_GRAPHQL=true` on the Weaviate container — GraphQL is incompatible with namespaces and Weaviate enforces this at startup. The namespaces API is available at `http://localhost:8080/v1/namespaces`.
+
+### With Namespaces + OIDC
+
+```bash
+WEAVIATE_VERSION="1.28.0" NAMESPACES=true OIDC=true ./local-k8s.sh setup
+```
+
+Combining `NAMESPACES=true` with `OIDC=true` additionally sets `authentication.oidc.namespace_claim=weaviate_namespace` and `authentication.oidc.global_principal_claim=weaviate_global_principal` on the Weaviate config. To classify OIDC users as global operators or namespaced principals, create them with the extended `create_oidc_user.sh` flags:
+
+```bash
+# Global operator (can manage namespaces, create namespaced DB users, etc.)
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u admin@example.com -G
+
+# Namespaced user (scoped to namespace "customer1")
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u tenant1@example.com -n customer1
+```
+
+`-n` and `-G` are mutually exclusive. Users created without either flag are plain authenticated principals with no namespace and no global-operator status. See `references/auth-config.md` for full details.
 
 ### Minimal (Fastest Startup)
 

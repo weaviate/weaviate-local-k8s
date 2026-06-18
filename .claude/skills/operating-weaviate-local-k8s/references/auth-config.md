@@ -58,15 +58,25 @@ Deploys Keycloak (port 9090), realm `weaviate`, client `demo`, admin credentials
 
 ### Create OIDC Users
 
+The helper scripts live on the host (in `scripts/` of this repo) and hit Keycloak via the hostname `keycloak.oidc.svc.cluster.local`, which `local-k8s.sh setup` adds to `/etc/hosts` pointing at the port-forwarded Keycloak service. **Always run them from the host, not from inside the Keycloak pod** — the pod does not contain these scripts.
+
 ```bash
 # Create user (password = username by default)
-kubectl exec -n oidc deployment/keycloak -- \
-  bash /scripts/create_oidc_user.sh -u admin@example.com
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u admin@example.com
 
 # Create user and assign to group
-kubectl exec -n oidc deployment/keycloak -- \
-  bash /scripts/create_oidc_user.sh -u admin@example.com -g admins
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u admin@example.com -g admins
+
+# Create a global operator (sets weaviate_global_principal=true).
+# Only meaningful when NAMESPACES=true is also set on the cluster.
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u admin@example.com -G
+
+# Create a namespaced user (sets weaviate_namespace=customer1).
+# Only meaningful when NAMESPACES=true is also set on the cluster.
+bash "$WEAVIATE_LOCAL_K8S_DIR/scripts/create_oidc_user.sh" -u tenant1@example.com -n customer1
 ```
+
+`-n` and `-G` are mutually exclusive — a global operator cannot be bound to a namespace. Both flags work by setting Keycloak user attributes that the `demo` client's protocol mappers expose as JWT claims (`weaviate_namespace`, `weaviate_global_principal`). Weaviate reads those claims when `NAMESPACES_ENABLED=true` and `AUTHENTICATION_OIDC_ENABLED=true` are both set; with namespaces disabled, the attributes are simply ignored.
 
 ### Get OIDC Token
 
@@ -124,7 +134,7 @@ Enables runtime user management stored in Weaviate database. Users can be create
 
 Located in `$WEAVIATE_LOCAL_K8S_DIR/scripts/`:
 
-- **create_oidc_user.sh** `-u USERNAME [-g GROUP]` - Create Keycloak user
+- **create_oidc_user.sh** `-u USERNAME [-g GROUP] [-n NAMESPACE | -G]` - Create Keycloak user; `-n` binds to a Weaviate namespace, `-G` marks as global operator (mutually exclusive)
 - **get_user_token.sh** `-u USERNAME [-p PASSWORD]` - Get OIDC bearer token
 - **create_oidc_group.sh** `-g GROUPNAME` - Create Keycloak group
 

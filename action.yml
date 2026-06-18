@@ -126,6 +126,10 @@ inputs:
     description: 'Whether or not to enable MCP write access (object upsert).'
     required: false
     default: 'false'
+  namespaces:
+    description: 'Enable namespaces support (virtual clusters). Automatically disables GraphQL, which is incompatible with namespaces.'
+    required: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -173,6 +177,7 @@ runs:
         DOCKER_CONFIG: ${{ inputs.docker-config }}
         MCP: ${{ inputs.mcp }}
         MCP_WRITE_ACCESS: ${{ inputs.mcp-write-access }}
+        NAMESPACES: ${{ inputs.namespaces }}
       run: |
         # Retry configuration
         MAX_RETRIES=2

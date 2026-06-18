@@ -6,7 +6,7 @@
     "notBefore": 0,
     "revokeRefreshToken": false,
     "refreshTokenMaxReuse": 0,
-    "accessTokenLifespan": 60,
+    "accessTokenLifespan": 3600,
     "accessTokenLifespanForImplicitFlow": 900,
     "ssoSessionIdleTimeout": 1800,
     "ssoSessionMaxLifespan": 36000,
@@ -512,7 +512,7 @@
         "protocol": "openid-connect",
         "attributes": {
           "saml.assertion.signature": "false",
-          "access.token.lifespan": "600",
+          "access.token.lifespan": "3600",
           "saml.force.post.binding": "false",
           "saml.multivalued.roles": "false",
           "saml.encrypt": "false",
@@ -554,6 +554,36 @@
               "included.client.audience": "demo",
               "id.token.claim": "true",
               "access.token.claim": "true"
+            }
+          },
+          {
+            "id": "2b1f4e87-1a0d-4f3e-9e6a-7b3c5d8e9f01",
+            "name": "Weaviate Namespace",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-usermodel-attribute-mapper",
+            "consentRequired": false,
+            "config": {
+              "user.attribute": "weaviate_namespace",
+              "claim.name": "weaviate_namespace",
+              "jsonType.label": "String",
+              "id.token.claim": "true",
+              "access.token.claim": "true",
+              "userinfo.token.claim": "true"
+            }
+          },
+          {
+            "id": "3c2a5f98-2b1e-5a4f-af7b-8c4d6e9f0a12",
+            "name": "Weaviate Global Principal",
+            "protocol": "openid-connect",
+            "protocolMapper": "oidc-usermodel-attribute-mapper",
+            "consentRequired": false,
+            "config": {
+              "userinfo.token.claim": "true",
+              "user.attribute": "weaviate_global_principal",
+              "id.token.claim": "true",
+              "access.token.claim": "true",
+              "claim.name": "weaviate_global_principal",
+              "jsonType.label": "boolean"
             }
           }
         ],
