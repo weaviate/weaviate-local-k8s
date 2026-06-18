@@ -105,10 +105,13 @@ into the generated CR; the operator admin API key lives in the
 is applied from `manifests/` and the CR's `TRANSFORMERS_INFERENCE_API`/
 `MODEL2VEC_INFERENCE_API` is wired to it (the operator itself does not ship
 inference servers); other modules needing a companion deployment are enabled in the
-CR but not functional. `upgrade` in operator mode is driven through the operator's
-Upgrade CRD (version-only; the controller blocks downgrades, optionally backs up,
-patches the version and waits for pods healthy at the new version) — set
-`OPERATOR_UPGRADE_BACKUP=true` (with `ENABLE_BACKUP=true`) to back up first.
+CR but not functional. `upgrade` in operator mode re-applies the CR for config and
+scaling (`REPLICAS`) with the version pinned to the running one, then bumps the
+version (if changed) through the operator's Upgrade CRD (blocks downgrades,
+optionally backs up, waits for pods healthy at the new version) — set
+`OPERATOR_UPGRADE_BACKUP=true` (with `ENABLE_BACKUP=true`) to back up first. Only
+**scale-up** is possible: the operator webhook rejects reducing replicas, so a
+downscale request fails fast (recreate the cluster to shrink).
 
 ## Authentication
 

@@ -155,12 +155,41 @@ function upgrade() {
     start_weaviate_pod_state_logger || true
 
     if [[ $DEPLOYMENT_METHOD == "operator" ]]; then
-        # Version changes go through the operator's Upgrade CRD (its canonical
-        # mechanism: optional pre-upgrade backup, patches the Weaviate version
-        # and waits for every pod to be healthy at the new version). This is a
-        # version-only upgrade; other config changes are not re-applied here
-        # (edit the Weaviate CR / cr-override.yaml or re-run setup for those).
-        upgrade_weaviate_via_operator
+        # Re-apply the Weaviate CR so config and scaling (REPLICAS) changes are
+        # reconciled like the helm path did. The version, however, is owned by the
+        # operator's Upgrade CRD (gated, optional backup), so we pin spec.version
+        # in this apply to whatever is currently running — the apply then only
+        # changes replicas/config, and the version bump (if any) happens via the
+        # Upgrade CRD below.
+        if [[ $need_minio == "true" ]]; then
+            create_minio_credentials_secret
+        fi
+        # Ensure module inference services exist (idempotent) in case modules changed.
+        deploy_operator_module_services
+        local running_version running_replicas
+        running_version=$(kubectl get weaviate weaviate -n weaviate -o jsonpath='{.spec.version}' 2>/dev/null || true)
+        running_replicas=$(kubectl get weaviate weaviate -n weaviate -o jsonpath='{.spec.replicas}' 2>/dev/null || true)
+        # The operator's webhook forbids reducing replicas ("you cannot downscale a
+        # weaviate instance"). Fail fast with an actionable message rather than
+        # letting deploy_weaviate_cr retry a permanent rejection. Scale-up is allowed.
+        if [[ -n "$running_replicas" ]] && [[ "$REPLICAS" -lt "$running_replicas" ]]; then
+            echo_red "DEPLOYMENT_METHOD=operator cannot scale down: the operator rejects reducing replicas (current: ${running_replicas}, requested: ${REPLICAS})."
+            echo_red "The wcs-weaviate-operator only supports scale-up. To shrink the cluster, recreate it (clean + setup) at the desired size."
+            exit 1
+        fi
+        generate_weaviate_cr
+        if [[ -n "$running_version" ]]; then
+            yq -i ".spec.version = \"${running_version}\"" "$WEAVIATE_CR_FILE"
+        fi
+        echo_green "upgrade # Re-applying Weaviate CR (scaling/config; version pinned to ${running_version:-$WEAVIATE_VERSION})"
+        deploy_weaviate_cr
+        # Version bump through the Upgrade CRD only when the target differs from
+        # what is running (and a cluster already exists).
+        if [[ -n "$running_version" && "$WEAVIATE_VERSION" != "$running_version" ]]; then
+            upgrade_weaviate_via_operator
+        else
+            echo_green "upgrade # Weaviate version unchanged (${WEAVIATE_VERSION}); no Upgrade CRD needed"
+        fi
     else
         # This function sets up weaviate-helm and sets the global env var $TARGET
         setup_helm $HELM_BRANCH

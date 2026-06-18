@@ -101,7 +101,7 @@ On failure, the action dumps:
 | `check-operator-token` | Gate: is WCS_OPERATOR_PAT configured? | secrets unavailable in job-level `if`, hence the gate job |
 | `run-weaviate-local-k8s-operator-basic` | Operator deployment | deployment-method=operator, REPLICAS=3 |
 | `run-weaviate-local-k8s-operator-features` | Operator + features | rbac, oidc, dynamic-users, backup, usage-s3, observability |
-| `run-weaviate-local-k8s-operator-upgrade` | Operator Upgrade CRD | 1.36.0 -> latest (skipBackups=true) |
+| `run-weaviate-local-k8s-operator-upgrade` | Operator Upgrade CRD + scaling | 1.36.0 -> latest, then scale-up 3->5, then scale-down 5->3 must fail fast |
 | `run-weaviate-local-k8s-operator-upgrade-backup` | Operator Upgrade CRD + backup | 1.36.0 -> latest, operator-upgrade-backup + enable-backup |
 | `run-weaviate-local-k8s-operator-prebuilt-image` | Pre-built controller image | operator-image + operator-dir (PR CI flow) |
 | `run-weaviate-local-k8s-operator-helm-incompatible` | Guard | operator + helm-branch must fail |

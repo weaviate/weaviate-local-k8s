@@ -220,13 +220,17 @@ Operator-mode rules:
   create) and wires the CR `TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API`
   env var to it. Other modules needing a companion deployment are enabled in the
   CR but not functional (warned at setup).
-- `upgrade` is driven through the operator's **Upgrade CRD** (its canonical
-  mechanism), not by re-applying the Weaviate CR. It is **version-only**: the
-  controller blocks downgrades, optionally backs up, patches the version and waits
-  for all pods to be healthy at the new version. Other config changes are NOT
-  re-applied on upgrade — edit the CR / `cr-override.yaml` or re-run setup for those.
-  Pre-upgrade backups are OFF by default; set `OPERATOR_UPGRADE_BACKUP=true`
-  (needs `ENABLE_BACKUP=true`) to take a backup first.
+- `upgrade` re-applies the Weaviate CR to reconcile config and **scaling**
+  (`REPLICAS`) like the helm path did, then drives any **version** change through
+  the operator's **Upgrade CRD** (the apply pins `spec.version` to the running
+  version so it only touches replicas/config; the Upgrade CRD owns the version
+  bump — blocks downgrades, optionally backs up, waits for pods healthy at the new
+  version). Pre-upgrade backups are OFF by default; set `OPERATOR_UPGRADE_BACKUP=true`
+  (needs `ENABLE_BACKUP=true`) to back up first.
+- **Scaling caveat:** the operator only supports **scale-up**. Its webhook rejects
+  reducing replicas ("you cannot downscale a weaviate instance"), so weaviate-local-k8s
+  fails fast on a downscale request — to shrink, recreate the cluster (`clean` + `setup`).
+  Replicas must still be 1 or an odd number >= 3.
 
 ### Build and Deploy from Local Weaviate Source
 

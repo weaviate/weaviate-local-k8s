@@ -1385,6 +1385,56 @@ jobs:
                 kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
                 exit 1
             fi
+        - name: Scale the cluster up via upgrade (3 -> 5, same version)
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: '5'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
+        - name: Verify scale-up reconciled
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=300s
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne 5 ]]; then
+                echo "Error: expected 5 replicas after scale-up, found $replicas"
+                exit 1
+            fi
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            healthy=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq '[.nodes[] | select(.status=="HEALTHY")] | length')
+            if [[ "$healthy" -ne 5 ]]; then
+                echo "Error: expected 5 HEALTHY nodes after scale-up, found $healthy"
+                exit 1
+            fi
+        - name: Attempt scale-down (must be rejected by the operator)
+          id: downscale
+          continue-on-error: true
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: '3'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
+        - name: Verify scale-down was rejected and the cluster is intact
+          run: |
+            set -ex
+            if [[ "${{ steps.downscale.outcome }}" != "failure" ]]; then
+                echo "Error: scale-down should have failed fast (operator forbids downscaling)"
+                exit 1
+            fi
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne 5 ]]; then
+                echo "Error: cluster should still have 5 replicas after a rejected downscale, found $replicas"
+                exit 1
+            fi
+            echo "Scale-down correctly rejected; cluster intact at 5 replicas"
     run-weaviate-local-k8s-operator-upgrade-backup:
       needs: [get-latest-weaviate-version, check-operator-token]
       if: needs.check-operator-token.outputs.has-token == 'true'
