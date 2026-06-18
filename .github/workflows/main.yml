@@ -14,6 +14,28 @@ jobs:
         - name: Retrieve latest Weaviate version
           id: latest-version
           uses: weaviate/github-common-actions/.github/actions/get-latest-weaviate-version@main
+    # weaviate/wcs-weaviate-operator is a private repository: the operator CI
+    # jobs need a token (WCS_OPERATOR_PAT secret) with read access to clone it.
+    # The secrets context is not available in job-level 'if' conditions, so a
+    # tiny gate job exposes whether the secret is configured. When it is not,
+    # the operator jobs are skipped instead of failing.
+    check-operator-token:
+      runs-on: ubuntu-latest
+      name: Check if the wcs-weaviate-operator token is configured
+      outputs:
+        has-token: ${{ steps.check.outputs.has-token }}
+      steps:
+        - name: Check for WCS_OPERATOR_PAT secret
+          id: check
+          env:
+            OPERATOR_TOKEN: ${{ secrets.WCS_OPERATOR_PAT }}
+          run: |
+            if [ -n "$OPERATOR_TOKEN" ]; then
+              echo "has-token=true" >> $GITHUB_OUTPUT
+            else
+              echo "has-token=false" >> $GITHUB_OUTPUT
+              echo "::warning::WCS_OPERATOR_PAT secret is not configured; skipping wcs-weaviate-operator CI jobs"
+            fi
     run-weaviate-local-k8s-basic:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
@@ -1057,4 +1079,502 @@ jobs:
             for pid in ${SQUAT_PIDS:-}; do
               kill "$pid" || true
             done
+    run-weaviate-local-k8s-operator-basic:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action deploying through the wcs-weaviate-operator
+      env:
+        WORKERS: '1'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        WEAVIATE_PORT: '8080'
+        WEAVIATE_GRPC_PORT: '50051'
+        EXPOSE_PODS: 'true'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: ${{ env.EXPOSE_PODS }}
+        - name: Check the configured values
+          run: |
+            set -ex
+            # The operator controller must be running
+            kubectl get deployment wcs-weaviate-operator-controller-manager -n wcs-weaviate-operator-system
+            # The Weaviate CR must report Ready
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=60s
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            # The operator always enables API key auth with a generated admin key
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            if [[ -z "$ADMIN_KEY" ]]; then
+                echo "Error: weaviate-operator-admin-key secret is empty or missing"
+                exit 1
+            fi
+            # Anonymous access stays enabled by default (mirrors the helm chart)
+            curl -sf -o /dev/null http://127.0.0.1:8080/v1/.well-known/ready
+            versions=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            node_count=$(echo "$versions" | wc -l)
+            if [[ "$node_count" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Expected ${{ env.REPLICAS }} nodes, found $node_count"
+                exit 1
+            fi
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            sleep 2 # Wait for the metrics to be available
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:2112/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Weaviate metrics is not listening, returned $error"
+              exit 1
+            fi
+            # Pods must be individually exposed via kubectl-relay
+            for ((i=0; i<${{ env.REPLICAS }}; i++)); do
+              PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
+              GRPC_PORT=$((${{ env.WEAVIATE_GRPC_PORT }} + i + 1))
+              if [ -z "$(lsof -i :$PORT -sTCP:LISTEN -n -P | grep kubectl-r)" ]; then
+                echo "FAIL: Pod $i (HTTP Port $PORT): NOT LISTENING"
+                exit 1
+              fi
+              if [ -z "$(lsof -i :$GRPC_PORT -sTCP:LISTEN -n -P | grep kubectl-r)" ]; then
+                echo "FAIL: Pod $i (gRPC Port $GRPC_PORT): NOT LISTENING"
+                exit 1
+              fi
+            done
+    run-weaviate-local-k8s-operator-features:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator deployment with RBAC, OIDC, backup and usage
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            rbac: 'true'
+            oidc: 'true'
+            dynamic-users: 'true'
+            enable-backup: 'true'
+            usage-s3: 'true'
+            observability: 'true'
+            expose-pods: 'false'
+        - name: Check the configured values
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=60s
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            # RBAC: anonymous access must be rejected...
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/schema)
+            if [[ "$code" -ne 401 ]]; then
+                echo "Error: Anonymous request should return 401 with RBAC enabled, got $code"
+                exit 1
+            fi
+            # ...while the operator admin key has root access
+            curl -sf -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/schema > /dev/null
+            # conf.yaml rendered by the operator must contain RBAC and the keycloak OIDC issuer
+            config=$(kubectl get configmap weaviate-cm -n weaviate -o jsonpath='{.data.conf\.yaml}')
+            echo "$config" | grep -A2 "rbac" | grep -q "enabled: true"
+            echo "$config" | grep -q "keycloak.oidc.svc.cluster.local"
+            # Dynamic user management must be wired through the CR extraEnv
+            env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="AUTHENTICATION_DB_USERS_ENABLED")].value}')
+            if [[ "$env_value" != "true" ]]; then
+                echo "Error: AUTHENTICATION_DB_USERS_ENABLED is not true. Found $env_value"
+                exit 1
+            fi
+            # Usage collection must point at the MinIO bucket
+            env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="USAGE_S3_BUCKET")].value}')
+            if [[ "$env_value" != "weaviate-usage" ]]; then
+                echo "Error: USAGE_S3_BUCKET is not weaviate-usage. Found $env_value"
+                exit 1
+            fi
+            # Create a dynamic db user
+            curl --fail-with-body -X POST -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+              http://127.0.0.1:8080/v1/users/db/ci-test-user
+            # Keycloak must be reachable and able to issue tokens
+            if ! grep -q "keycloak.oidc.svc.cluster.local" /etc/hosts; then
+                echo "Error: 127.0.0.1 keycloak.oidc.svc.cluster.local is not in /etc/hosts"
+                exit 1
+            fi
+            curl --fail -s -X POST -d grant_type=password -d client_id=demo -d username=admin -d password=admin \
+              http://keycloak.oidc.svc.cluster.local:9090/realms/weaviate/protocol/openid-connect/token | jq -r .access_token
+            # Backup to MinIO through the backup-s3 module configured by the CR
+            echo "Create a collection"
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $ADMIN_KEY" \
+              -d '{"class": "Article"}' \
+              http://127.0.0.1:8080/v1/schema
+            echo "Insert an object so the backup has data"
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $ADMIN_KEY" \
+              -d '{"class": "Article", "properties": {}}' \
+              http://127.0.0.1:8080/v1/objects
+            echo "Create a backup"
+            curl --fail-with-body -X POST -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $ADMIN_KEY" \
+              -d '{"id": "operator-test-backup"}' \
+              http://127.0.0.1:8080/v1/backups/s3
+            response=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/backups/s3/operator-test-backup)
+            if echo "$response" | jq -e '.status == "STARTED" or .status == "SUCCEEDED"' > /dev/null 2>&1; then
+              echo "The backup has been started."
+            else
+              echo "The backup status is not STARTED/SUCCEEDED or the json output is not the expected."
+              exit 1
+            fi
+            # Observability stack must be up
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9091/metrics)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Prometheus is not listening, returned $error"
+              exit 1
+            fi
+            error=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/)
+            if [[ "$error" -ne 200 ]]; then
+              echo "Error: Grafana is not listening, returned $error"
+              exit 1
+            fi
+    run-weaviate-local-k8s-operator-modules:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator deployment with local vectorizer modules
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        MODULES: 'text2vec-transformers,text2vec-model2vec'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            modules: ${{ env.MODULES }}
+            expose-pods: 'false'
+        - name: Check the configured values
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=120s
+            # The operator does not ship module inference servers; weaviate-local-k8s
+            # must have deployed them for the local vectorizer modules.
+            kubectl rollout status deployment/transformers-inference -n weaviate --timeout=300s
+            kubectl rollout status deployment/model2vec-inference -n weaviate --timeout=300s
+            # Weaviate must be pointed at the in-cluster inference services via the CR
+            t_api=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="TRANSFORMERS_INFERENCE_API")].value}')
+            if [[ "$t_api" != "http://transformers-inference:8080" ]]; then
+                echo "Error: TRANSFORMERS_INFERENCE_API is not set correctly. Found '$t_api'"
+                exit 1
+            fi
+            m_api=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MODEL2VEC_INFERENCE_API")].value}')
+            if [[ "$m_api" != "http://model2vec-inference:8080" ]]; then
+                echo "Error: MODEL2VEC_INFERENCE_API is not set correctly. Found '$m_api'"
+                exit 1
+            fi
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            # Both vectorizer modules must be advertised by Weaviate
+            modules=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/meta | jq -r '.modules | keys[]')
+            echo "$modules" | grep -q "text2vec-transformers"
+            echo "$modules" | grep -q "text2vec-model2vec"
+            # End-to-end: each local vectorizer must actually produce a vector
+            for vectorizer in text2vec-transformers text2vec-model2vec; do
+              class="Doc_${vectorizer//-/_}"
+              curl --fail-with-body -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $ADMIN_KEY" \
+                -d "{\"class\": \"$class\", \"vectorizer\": \"$vectorizer\", \"properties\": [{\"name\": \"text\", \"dataType\": [\"text\"]}]}" \
+                http://127.0.0.1:8080/v1/schema
+              id=$(curl -s -X POST -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $ADMIN_KEY" \
+                -d "{\"class\": \"$class\", \"properties\": {\"text\": \"the quick brown fox\"}}" \
+                http://127.0.0.1:8080/v1/objects | jq -r '.id')
+              if [[ -z "$id" || "$id" == "null" ]]; then
+                  echo "Error: object was not created for $vectorizer"
+                  exit 1
+              fi
+              vec_len=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" \
+                "http://127.0.0.1:8080/v1/objects/$class/$id?include=vector" | jq '.vector | length')
+              if [[ -z "$vec_len" || "$vec_len" == "null" || "$vec_len" -lt 1 ]]; then
+                  echo "Error: $vectorizer did not produce a vector (length=$vec_len)"
+                  exit 1
+              fi
+              echo "$vectorizer produced a vector of length $vec_len"
+            done
+    run-weaviate-local-k8s-operator-upgrade:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator deployment and upgrade Weaviate via the Upgrade CRD
+      env:
+        WORKERS: '1'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: '1.36.0'
+        UPGRADE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: 'false'
+        - name: Upgrade Weaviate via the operator Upgrade CRD.
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
+        - name: Check the configured values
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=120s
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            versions=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            # The upgrade must have been driven through the operator's Upgrade CRD
+            # (default path: skipBackups=true, no backup backend required).
+            upgrade_phase=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.phase}')
+            if [[ "$upgrade_phase" != "Success" ]]; then
+                echo "Error: expected an Upgrade CR in phase Success, found '$upgrade_phase'"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+        - name: Scale the cluster up via upgrade (3 -> 5, same version)
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: '5'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
+        - name: Verify scale-up reconciled
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=300s
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne 5 ]]; then
+                echo "Error: expected 5 replicas after scale-up, found $replicas"
+                exit 1
+            fi
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            healthy=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq '[.nodes[] | select(.status=="HEALTHY")] | length')
+            if [[ "$healthy" -ne 5 ]]; then
+                echo "Error: expected 5 HEALTHY nodes after scale-up, found $healthy"
+                exit 1
+            fi
+        - name: Attempt scale-down (must be rejected by the operator)
+          id: downscale
+          continue-on-error: true
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: '3'
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            expose-pods: 'false'
+        - name: Verify scale-down was rejected and the cluster is intact
+          run: |
+            set -ex
+            if [[ "${{ steps.downscale.outcome }}" != "failure" ]]; then
+                echo "Error: scale-down should have failed fast (operator forbids downscaling)"
+                exit 1
+            fi
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne 5 ]]; then
+                echo "Error: cluster should still have 5 replicas after a rejected downscale, found $replicas"
+                exit 1
+            fi
+            echo "Scale-down correctly rejected; cluster intact at 5 replicas"
+    run-weaviate-local-k8s-operator-upgrade-backup:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator upgrade with a pre-upgrade backup (Upgrade CRD)
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: '1.36.0'
+        UPGRADE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s with the operator (backup backend enabled).
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            enable-backup: 'true'
+            expose-pods: 'false'
+        - name: Upgrade via the Upgrade CRD taking a pre-upgrade backup.
+          uses: ./
+          with:
+            operation: upgrade
+            deployment-method: 'operator'
+            github-token: ${{ secrets.WCS_OPERATOR_PAT }}
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.UPGRADE_VERSION }}
+            enable-backup: 'true'
+            operator-upgrade-backup: 'true'
+            expose-pods: 'false'
+        - name: Check the upgrade succeeded and recorded a backup
+          run: |
+            set -ex
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=120s
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            versions=$(curl -s -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq -r '.nodes[].version')
+            for version in $versions; do
+                if [[ "$version" != "${{ env.UPGRADE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.UPGRADE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            # The Upgrade CR must have succeeded AND recorded a pre-upgrade backup
+            # (skipBackups=false because operator-upgrade-backup=true).
+            phase=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.phase}')
+            if [[ "$phase" != "Success" ]]; then
+                echo "Error: Upgrade CR phase is '$phase', expected Success"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+            backup_name=$(kubectl get upgrades.database.weaviate.io -n weaviate -o jsonpath='{.items[0].status.lastBackupName}')
+            if [[ -z "$backup_name" ]]; then
+                echo "Error: Upgrade did not record a backup (lastBackupName empty) despite operator-upgrade-backup=true"
+                kubectl get upgrades.database.weaviate.io -n weaviate -o yaml
+                exit 1
+            fi
+            echo "Upgrade succeeded with pre-upgrade backup: $backup_name"
+    run-weaviate-local-k8s-operator-prebuilt-image:
+      needs: [get-latest-weaviate-version, check-operator-token]
+      if: needs.check-operator-token.outputs.has-token == 'true'
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s operator deployment with a pre-built controller image
+      env:
+        WORKERS: '1'
+        REPLICAS: '1'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        OPERATOR_IMAGE: 'wcs-weaviate-operator:ci-prebuilt'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        # Simulates the wcs-weaviate-operator PR flow: its CI builds a
+        # controller image from the PR sources and hands the image plus the
+        # checkout to this action.
+        - name: Clone the operator repository and build the controller image
+          env:
+            GH_TOKEN: ${{ secrets.WCS_OPERATOR_PAT }}
+          run: |
+            # Authenticate via GIT_ASKPASS so the token never lands on the command
+            # line (argv/process list/logs), matching the operator clone in
+            # utilities/operator.sh. The helper just echoes the token from the env.
+            askpass="$(mktemp)"
+            printf '#!/bin/sh\nexec echo "$GIT_ASKPASS_TOKEN"\n' > "$askpass"
+            chmod +x "$askpass"
+            GIT_ASKPASS_TOKEN="$GH_TOKEN" GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
+              git clone -b main --depth 1 "https://x-access-token@github.com/weaviate/wcs-weaviate-operator.git" /tmp/operator-src
+            rm -f "$askpass"
+            # buildx (BuildKit) is required: the operator's allowlist .dockerignore
+            # is mishandled by the legacy builder. --load exports the image to the
+            # local daemon so the action can kind-load it.
+            docker buildx build --load --build-arg VERSION=ci-prebuilt -t ${{ env.OPERATOR_IMAGE }} /tmp/operator-src
+        - name: Deploy weaviate-local-k8s with the pre-built operator image.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            operator-image: ${{ env.OPERATOR_IMAGE }}
+            operator-dir: '/tmp/operator-src'
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            expose-pods: 'false'
+        - name: Check the configured values
+          run: |
+            set -ex
+            # The controller must run exactly the pre-built image
+            image=$(kubectl get deployment wcs-weaviate-operator-controller-manager -n wcs-weaviate-operator-system \
+              -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}')
+            if [[ "$image" != "${{ env.OPERATOR_IMAGE }}" ]]; then
+                echo "Error: Operator image is not ${{ env.OPERATOR_IMAGE }}. Found $image"
+                exit 1
+            fi
+            kubectl wait weaviate/weaviate -n weaviate --for=condition=Ready --timeout=60s
+            ADMIN_KEY=$(kubectl get secret weaviate-operator-admin-key -n weaviate -o jsonpath='{.data.key}' | base64 --decode)
+            curl -sf -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8080/v1/nodes | jq -e '.nodes | length == 1'
+    run-weaviate-local-k8s-operator-helm-incompatible:
+      runs-on: ubuntu-latest
+      name: Verify operator deployment rejects helm-specific options
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        # The validation runs before the Kind cluster is created and before the
+        # private operator repo would be cloned, so no token is required here.
+        - name: Attempt operator deployment with helm-branch (should fail)
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            deployment-method: 'operator'
+            helm-branch: 'main'
+            replicas: '3'
+            weaviate-version: '1.36.0'
+            expose-pods: 'false'
+          continue-on-error: true
+        - name: Check that deployment failed
+          if: steps.invoke-local-k8s.outcome == 'success'
+          run: |
+            echo "The previous step should have failed (operator + helm-branch are incompatible), but it didn't"
+            exit 1
 

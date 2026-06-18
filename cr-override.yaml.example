@@ -1,0 +1,24 @@
+# Example override for the Weaviate custom resource generated when
+# DEPLOYMENT_METHOD=operator. Copy this file to cr-override.yaml and adapt it;
+# it is deep-merged on top of the generated CR (maps are merged, arrays are
+# appended). This is the operator-mode counterpart of values-override.yaml.
+#
+# Full spec reference: https://github.com/weaviate/wcs-weaviate-operator
+spec:
+  podConfig:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    storage:
+      size: 50Gi
+    extraEnv:
+      - name: ASYNC_INDEXING
+        value: "true"
+      - name: LOG_LEVEL
+        value: debug
+  config:
+    defaultVectorIndexType: hnsw

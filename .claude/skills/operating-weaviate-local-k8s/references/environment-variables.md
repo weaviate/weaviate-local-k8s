@@ -81,6 +81,38 @@ All are string `"true"` / `"false"`.
 | `MODULES` | `""` | Comma-separated module list |
 | `DOCKER_CONFIG` | `""` | Docker config file for pull secrets (absolute path, no `~`) |
 
+## Deployment Method (wcs-weaviate-operator)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPLOYMENT_METHOD` | `"helm"` | `helm` (weaviate-helm chart) or `operator` (wcs-weaviate-operator) |
+| `OPERATOR_BRANCH` | `"main"` | Branch of wcs-weaviate-operator to clone and docker-build |
+| `OPERATOR_IMAGE` | `""` | Pre-built controller image (kind-loaded if present locally; skips the build) |
+| `OPERATOR_DIR` | `""` | Local wcs-weaviate-operator checkout to use instead of cloning |
+| `OPERATOR_REPO` | github https URL | Clone URL override (e.g. SSH remote for the private repo) |
+| `OPERATOR_UPGRADE_BACKUP` | `"false"` | Upgrade only: take a pre-upgrade backup via the Upgrade CRD (`skipBackups=false`). Requires `ENABLE_BACKUP=true` (MinIO/s3). Default disables backups |
+| `CERT_MANAGER_VERSION` | `"v1.18.2"` | cert-manager release installed for the operator webhooks |
+| `WEAVIATE_STORAGE_SIZE` | `"32Gi"` | PVC size in the generated Weaviate CR |
+
+Operator-mode rules: `REPLICAS` must be 1 or odd >= 3; helm-only options
+(`HELM_BRANCH`, `VALUES_INLINE`, `AUTH_CONFIG`, `DELETE_STS`,
+`MCP`, `S3_OFFLOAD`, `COLLECTION_EXPORT`) are rejected and a
+`values-override.yaml` file is ignored with a warning; `cr-override.yaml` deep-merges
+into the generated CR; the operator admin API key lives in the
+`weaviate-operator-admin-key` secret. Cloning the private repo over HTTPS uses
+`GH_TOKEN`/`GITHUB_TOKEN` when set. For the local vectorizers in `MODULES`
+(`text2vec-transformers`, `text2vec-model2vec`), the inference Deployment + Service
+is applied from `manifests/` and the CR's `TRANSFORMERS_INFERENCE_API`/
+`MODEL2VEC_INFERENCE_API` is wired to it (the operator itself does not ship
+inference servers); other modules needing a companion deployment are enabled in the
+CR but not functional. `upgrade` in operator mode re-applies the CR for config and
+scaling (`REPLICAS`) with the version pinned to the running one, then bumps the
+version (if changed) through the operator's Upgrade CRD (blocks downgrades,
+optionally backs up, waits for pods healthy at the new version) — set
+`OPERATOR_UPGRADE_BACKUP=true` (with `ENABLE_BACKUP=true`) to back up first. Only
+**scale-up** is possible: the operator webhook rejects reducing replicas, so a
+downscale request fails fast (recreate the cluster to shrink).
+
 ## Authentication
 
 | Variable | Default | Description |

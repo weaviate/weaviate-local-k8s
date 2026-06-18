@@ -98,6 +98,21 @@ On failure, the action dumps:
 | `run-weaviate-local-k8s-backup` | Backup functionality | ENABLE_BACKUP=true |
 | `run-weaviate-local-k8s-clean` | Clean operation | Verify cleanup works |
 | `run-weaviate-local-k8s-single-node` | Single node | WORKERS=0, REPLICAS=1 |
+| `check-operator-token` | Gate: is WCS_OPERATOR_PAT configured? | secrets unavailable in job-level `if`, hence the gate job |
+| `run-weaviate-local-k8s-operator-basic` | Operator deployment | deployment-method=operator, REPLICAS=3 |
+| `run-weaviate-local-k8s-operator-features` | Operator + features | rbac, oidc, dynamic-users, backup, usage-s3, observability |
+| `run-weaviate-local-k8s-operator-upgrade` | Operator Upgrade CRD + scaling | 1.36.0 -> latest, then scale-up 3->5, then scale-down 5->3 must fail fast |
+| `run-weaviate-local-k8s-operator-upgrade-backup` | Operator Upgrade CRD + backup | 1.36.0 -> latest, operator-upgrade-backup + enable-backup |
+| `run-weaviate-local-k8s-operator-prebuilt-image` | Pre-built controller image | operator-image + operator-dir (PR CI flow) |
+| `run-weaviate-local-k8s-operator-helm-incompatible` | Guard | operator + helm-branch must fail |
+
+The operator jobs (except the guard) `need` `check-operator-token` and skip when the
+`WCS_OPERATOR_PAT` secret is missing, because weaviate/wcs-weaviate-operator is a
+private repository. The action inputs for the operator path are `deployment-method`,
+`operator-branch`, `operator-image`, `operator-dir`, `operator-upgrade-backup` and
+`github-token`. (`OPERATOR_REPO`, `CERT_MANAGER_VERSION` and `WEAVIATE_STORAGE_SIZE`
+are operator-internal env-var overrides for local runs, intentionally not exposed
+as action inputs.)
 
 ### Common Verification Pattern
 
