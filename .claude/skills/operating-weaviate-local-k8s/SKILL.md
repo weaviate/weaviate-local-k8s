@@ -225,6 +225,8 @@ With `EXPOSE_PODS=true` (default), each replica gets dedicated ports:
 | Metrics | 2112 | 2113 | 2114 | 2112+(N+1) |
 | Profiler | 6060 | 6061 | 6062 | 6060+(N+1) |
 
+`EXPOSE_PODS=true` also sets `DEBUG_ENDPOINTS_ENABLED=true` on the pods so the pprof/debug endpoints respond (Weaviate gates them off by default for security).
+
 Additional: Prometheus=9091, Grafana=3000, Keycloak=9090, MinIO=9000.
 
 ## Verification Workflow

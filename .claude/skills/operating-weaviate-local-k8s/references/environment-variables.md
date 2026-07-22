@@ -42,6 +42,8 @@ Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 
 Pod N gets: HTTP=`WEAVIATE_PORT+(N+1)`, gRPC=`WEAVIATE_GRPC_PORT+(N+1)`, Metrics=`WEAVIATE_METRICS+(N+1)`, Profiler=`PROFILER_PORT+(N+1)`.
 
+`EXPOSE_PODS=true` also sets `DEBUG_ENDPOINTS_ENABLED=true` on the Weaviate pods automatically — Weaviate gates the pprof/debug endpoints behind that env var (404 otherwise), so no manual override is needed to profile.
+
 ## Helm Configuration
 
 | Variable | Default | Description |

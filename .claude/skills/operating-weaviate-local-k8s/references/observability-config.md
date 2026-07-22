@@ -76,7 +76,7 @@ kubectl get dash0monitoring -n weaviate
 
 ## Profiling
 
-With `EXPOSE_PODS=true`:
+With `EXPOSE_PODS=true` (default). This also sets `DEBUG_ENDPOINTS_ENABLED=true` on the pods automatically — Weaviate disables the pprof/debug endpoints by default for security and returns 404 without it:
 
 ```bash
 go tool pprof http://localhost:6061/debug/pprof/heap      # Pod 0

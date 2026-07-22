@@ -838,6 +838,13 @@ TZEOF
                             --set env.PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY=true"
     fi
 
+    if [[ $EXPOSE_PODS == "true" ]]; then
+        # Weaviate serves the pprof/debug endpoints with 404 unless
+        # DEBUG_ENDPOINTS_ENABLED is set (disabled by default for security),
+        # so enable them whenever the profiler ports are exposed.
+        helm_values="${helm_values} --set env.DEBUG_ENDPOINTS_ENABLED=true"
+    fi
+
     if [[ $DYNAMIC_USERS == "true" ]]; then
         helm_values="${helm_values} --set authentication.db_users.enabled=true"
     fi

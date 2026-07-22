@@ -763,9 +763,12 @@ jobs:
                 exit 1
               }
 
-              # Verify profiler port with retries
+              # Verify profiler port with retries. Require HTTP 200 from the
+              # pprof index: the port is open even when debug endpoints are
+              # gated off (404), so a plain connectivity check would not catch
+              # a missing DEBUG_ENDPOINTS_ENABLED env var.
               for retry in {1..30}; do
-                if nc -z -w 1 127.0.0.1 $PROFILER_PORT; then
+                if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PROFILER_PORT/debug/pprof/ | grep -q 200; then
                   break
                 fi
                 echo "Profiler port $PROFILER_PORT not ready, retry $retry/30"
@@ -775,8 +778,8 @@ jobs:
                   exit 1
                 fi
               done
-              nc -z -w 5 127.0.0.1 $PROFILER_PORT || {
-                echo "ERROR: Profiler port $PROFILER_PORT final check failed"
+              curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PROFILER_PORT/debug/pprof/ | grep -q 200 || {
+                echo "ERROR: Profiler port $PROFILER_PORT final check failed (pprof index not returning 200)"
                 exit 1
               }
             done
