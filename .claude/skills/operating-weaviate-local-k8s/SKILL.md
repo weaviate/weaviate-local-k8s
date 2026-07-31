@@ -36,6 +36,10 @@ Given a scenario, determine which env vars to set:
 
 Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 
+Placement: when `REPLICAS <= schedulable nodes`, setup enforces one replica
+per node (required podAntiAffinity); with more replicas than nodes the chart's
+soft anti-affinity applies and pods may share nodes.
+
 ### Feature Selection
 
 | Need | Env vars |

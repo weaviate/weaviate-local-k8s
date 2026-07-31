@@ -202,6 +202,11 @@ EOF
     # Create k8s Kind Cluster
     kind create cluster --wait 120s --name weaviate-k8s --config /tmp/kind-config.yaml
 
+    # kind's --wait only covers the control-plane node; wait for the workers
+    # too, otherwise the scheduler packs every pod onto the first Ready node.
+    echo_green "setup # Waiting for all nodes to be ready"
+    kubectl wait --for=condition=Ready node --all --timeout=120s
+
     # Upload images to cluster if --local-images flag is passed
     if [ "${1:-}" == "--local-images" ]; then
         use_local_images

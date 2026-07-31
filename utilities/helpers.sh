@@ -761,6 +761,30 @@ extraVolumeMounts:
 TZEOF
     helm_values="${helm_values} -f /tmp/weaviate-tz-values.yaml"
 
+    # The chart's default podAntiAffinity is a weight-1 soft preference the
+    # scheduler is free to ignore. When the cluster has enough schedulable
+    # nodes for one replica each, enforce the same term as a hard requirement
+    # so tests can rely on replicas living on distinct nodes; with fewer nodes
+    # than replicas the chart default is kept and pods may share nodes.
+    local schedulable_nodes
+    schedulable_nodes=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.taints[*]}{.effect}{" "}{end}{"\n"}{end}' \
+        | awk -F'\t' '$2 !~ /NoSchedule|NoExecute/ {count++} END {print count+0}')
+    if [[ "$schedulable_nodes" -ge "$REPLICAS" ]]; then
+        cat <<AFFEOF > /tmp/weaviate-affinity-values.yaml
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: "kubernetes.io/hostname"
+        labelSelector:
+          matchExpressions:
+            - key: "app"
+              operator: In
+              values:
+                - weaviate
+AFFEOF
+        helm_values="${helm_values} -f /tmp/weaviate-affinity-values.yaml"
+    fi
+
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
 
