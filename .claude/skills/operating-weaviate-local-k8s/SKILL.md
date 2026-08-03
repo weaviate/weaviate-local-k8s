@@ -36,6 +36,12 @@ Given a scenario, determine which env vars to set:
 
 Rule: `WORKERS >= REPLICAS - 1` (control-plane counts as a node).
 
+Placement: setup waits for every node to be Ready before installing, so the
+chart's soft anti-affinity spreads replicas onto distinct nodes whenever the
+cluster has enough of them; with more replicas than nodes pods share nodes.
+A required anti-affinity cannot be set via the global `affinity` value —
+module deployments inherit it and would hard-repel weaviate pods.
+
 ### Feature Selection
 
 | Need | Env vars |

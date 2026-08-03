@@ -551,6 +551,20 @@ jobs:
               echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
+        - name: Verify each replica runs on a distinct node
+          run: |
+            set -ex
+            # With every node Ready before install (see setup) the chart's
+            # anti-affinity must place every replica on its own node whenever
+            # REPLICAS <= schedulable nodes, as fault-injection tests rely on.
+            nodes=$(kubectl get pods -n weaviate -l app=weaviate -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}')
+            total=$(echo "$nodes" | grep -c .)
+            unique=$(echo "$nodes" | sort -u | grep -c .)
+            if [[ "$total" -ne ${{ env.REPLICAS }} || "$unique" -ne "$total" ]]; then
+                echo "Error: expected ${{ env.REPLICAS }} replicas each on a distinct node, got $total pods on $unique nodes"
+                kubectl get pods -n weaviate -l app=weaviate -o wide
+                exit 1
+            fi
     run-weaviate-local-k8s-backup:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest
