@@ -51,6 +51,27 @@ WEAVIATE_VERSION="1.28.0" MODULES="text2vec-transformers-model2vec" ./local-k8s.
 
 Uses `semitechnologies/model2vec-inference` image with tag `minishlab-potion-multilingual-128M`. Special handling: overrides the `text2vec-transformers` Helm values (repo + tag) rather than using its own module path.
 
+## Local Vectorizers in Operator Mode
+
+In `DEPLOYMENT_METHOD=operator` the helm chart is not used, so the inference
+server that local vectorizers need is not created by the operator. For
+`text2vec-transformers` and `text2vec-model2vec`, weaviate-local-k8s deploys it
+from static manifests (`manifests/transformers-inference.yaml`,
+`manifests/model2vec-inference.yaml`) — same images as the helm path
+(`semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx`,
+`semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M`) so
+`--local-images` is reused — and wires the CR's
+`TRANSFORMERS_INFERENCE_API`/`MODEL2VEC_INFERENCE_API` env var to the service.
+
+```bash
+DEPLOYMENT_METHOD=operator MODULES="text2vec-transformers,text2vec-model2vec" \
+  WEAVIATE_VERSION="1.37.0" REPLICAS=1 ./local-k8s.sh setup
+```
+
+Other modules (e.g. `text2vec-contextionary`) are still added to
+`spec.modules.extra` but have no operator-deployed inference server and stay
+non-functional. See `deployment-patterns.md` for verification commands.
+
 ## Common Combinations
 
 ```bash

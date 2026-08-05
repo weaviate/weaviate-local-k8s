@@ -1,0 +1,72 @@
+# text2vec-transformers inference service for the operator deployment method.
+#
+# weaviate-helm ships this Deployment + Service as part of the chart
+# (templates/transformersInferenceDeployment.yaml). The wcs-weaviate-operator
+# only configures Weaviate to USE a vectorizer module, it does not deploy the
+# companion inference server, so in DEPLOYMENT_METHOD=operator we apply this
+# manifest ourselves. generate_weaviate_cr() points Weaviate at it via the
+# TRANSFORMERS_INFERENCE_API env var (http://transformers-inference:8080).
+#
+# Image matches the tag the helm path and use_local_images() use, so
+# --local-images (kind load) is reused via imagePullPolicy: IfNotPresent.
+# Probe timings are tuned for local Kind (the chart defaults to a 120s initial
+# delay; the models here are small and load in seconds).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transformers-inference
+  namespace: weaviate
+  labels:
+    app: transformers-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transformers-inference
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: transformers-inference
+    spec:
+      containers:
+        - name: transformers-inference
+          image: semitechnologies/transformers-inference:baai-bge-small-en-v1.5-onnx
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENABLE_CUDA
+              value: "0"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /.well-known/ready
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /.well-known/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transformers-inference
+  namespace: weaviate
+  labels:
+    app: transformers-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: transformers-inference
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080

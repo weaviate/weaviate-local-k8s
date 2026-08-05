@@ -1,0 +1,70 @@
+# text2vec-model2vec inference service for the operator deployment method.
+#
+# weaviate-helm ships this Deployment + Service as part of the chart
+# (templates/model2vecInferenceDeployment.yaml). The wcs-weaviate-operator
+# only configures Weaviate to USE a vectorizer module, it does not deploy the
+# companion inference server, so in DEPLOYMENT_METHOD=operator we apply this
+# manifest ourselves. generate_weaviate_cr() points Weaviate at it via the
+# MODEL2VEC_INFERENCE_API env var (http://model2vec-inference:8080).
+#
+# Image matches the tag the helm path and use_local_images() use, so
+# --local-images (kind load) is reused via imagePullPolicy: IfNotPresent.
+# model2vec is lightweight and (unlike transformers) takes no CUDA/env config.
+# Probe timings are tuned for local Kind (the chart defaults to a 120s initial
+# delay; the model here is small and loads in seconds).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model2vec-inference
+  namespace: weaviate
+  labels:
+    app: model2vec-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model2vec-inference
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: model2vec-inference
+    spec:
+      containers:
+        - name: model2vec-inference
+          image: semitechnologies/model2vec-inference:minishlab-potion-retrieval-32M
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /.well-known/ready
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /.well-known/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model2vec-inference
+  namespace: weaviate
+  labels:
+    app: model2vec-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: model2vec-inference
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
