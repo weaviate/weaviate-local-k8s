@@ -191,47 +191,24 @@ function wait_for_minio() {
     kubectl wait pod/minio -n weaviate --for=condition=Ready --timeout=300s
     echo_green "Minio is ready"
     if [[ $ENABLE_BACKUP == "true" || $USAGE_S3 == "true" || $COLLECTION_EXPORT == "true" ]]; then
-        # Run minio/mc in a single shot to create the bucket
-        # Check if the minio-mc pod already exists and delete it if necessary
-        if kubectl get pod minio-mc -n weaviate &>/dev/null; then
-            echo_yellow "Pod minio-mc already exists, skipping creation..."
-        else
-            echo_green "Creating Minio buckets"
-            kubectl run minio-mc --image="minio/mc" -n weaviate --restart=Never --command -- /bin/sh -c "
-            /usr/bin/mc alias set minio http://minio:9000 aws_access_key aws_secret_key;
-            if ! /usr/bin/mc ls minio/weaviate-backups > /dev/null 2>&1; then
-                /usr/bin/mc mb minio/weaviate-backups;
-                /usr/bin/mc policy set public minio/weaviate-backups;
+        echo_green "Creating Minio buckets"
+        # mc ships in the minio image, so the buckets are created from the minio pod itself.
+        # The pod has no readiness probe, so the alias step retries until the server answers.
+        kubectl exec -n weaviate minio -- /bin/sh -c '
+        set -e
+        for i in $(seq 1 30); do
+            /usr/bin/mc alias set minio http://localhost:9000 aws_access_key aws_secret_key && break
+            [ "$i" -eq 30 ] && exit 1
+            sleep 1
+        done
+        for bucket in weaviate-backups weaviate-usage weaviate-export; do
+            if ! /usr/bin/mc ls "minio/$bucket" > /dev/null 2>&1; then
+                /usr/bin/mc mb "minio/$bucket"
+                /usr/bin/mc anonymous set public "minio/$bucket"
             else
-                echo 'Bucket minio/weaviate-backups already exists.';
-            fi;
-            if ! /usr/bin/mc ls minio/weaviate-usage > /dev/null 2>&1; then
-                /usr/bin/mc mb minio/weaviate-usage;
-                /usr/bin/mc policy set public minio/weaviate-usage;
-            else
-                echo 'Bucket minio/weaviate-usage already exists.';
-            fi;
-            if ! /usr/bin/mc ls minio/weaviate-export > /dev/null 2>&1; then
-                /usr/bin/mc mb minio/weaviate-export;
-                /usr/bin/mc policy set public minio/weaviate-export;
-            else
-                echo 'Bucket minio/weaviate-export already exists.';
-            fi;"
-            # Wait for the pod/minio-mc to complete
-            timeout=100  # Timeout in seconds
-            elapsed=0    # Elapsed time counter
-
-            while [[ $(kubectl get pod minio-mc -n weaviate -o jsonpath='{.status.phase}') != "Succeeded" ]]; do
-                if [[ $elapsed -ge $timeout ]]; then
-                    echo "Timeout of $timeout seconds reached. Exiting..."
-                    exit 1
-                fi
-                sleep 1
-                elapsed=$((elapsed + 1))
-            done
-
-            echo "Pod minio-mc has completed successfully."
-        fi
+                echo "Bucket minio/$bucket already exists."
+            fi
+        done'
     fi
 }
 
@@ -1173,8 +1150,7 @@ function use_local_images() {
     fi
     if [[ $need_minio == "true" ]]; then
        WEAVIATE_IMAGES+=(
-            "minio/minio:latest"
-            "minio/mc:latest"
+            "cgr.dev/chainguard/minio:latest"
        )
     fi
     if [ "$OBSERVABILITY" == "true" ]; then
