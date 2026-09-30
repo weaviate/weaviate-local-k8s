@@ -46,6 +46,10 @@ inputs:
     description: 'Configures S3 compatible backup for Weaviate'
     required: false
     default: 'false'
+  weaviate-license-key:
+    description: 'Enterprise license key, or a path to a license file on the runner; injected into the Weaviate pods as the LICENSE_KEY environment variable. Empty disables it.'
+    required: false
+    default: ''
   collection-export:
     description: 'Enables collection export to S3/MinIO via the collectionExport Helm feature'
     required: false
@@ -158,6 +162,7 @@ runs:
         USAGE_S3 : ${{ inputs.usage-s3 }}
         DELETE_STS: ${{ inputs.delete-sts }}
         VALUES_INLINE: ${{ inputs.values-inline }}
+        WEAVIATE_LICENSE_KEY: ${{ inputs.weaviate-license-key }}
         OBSERVABILITY: ${{ inputs.observability }}
         DASH0: ${{ inputs.dash0 }}
         CLUSTER_NAME: ${{ inputs.cluster-name }}
