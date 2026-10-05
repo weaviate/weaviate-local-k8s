@@ -107,6 +107,7 @@ jobs:
         DYNAMIC_USERS: 'true'
         AUTH_CONFIG: '/tmp/rbac-config.yaml'
         EXPOSE_PODS: 'true'
+        WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
         VALUES_OVERRIDE: |
           storage:
             size: 50Gi
@@ -180,6 +181,7 @@ jobs:
             expose-pods: ${{ env.EXPOSE_PODS }}
             mcp: ${{ env.MCP }}
             mcp-write-access: ${{ env.MCP_WRITE_ACCESS }}
+            weaviate-license-key: ${{ env.WEAVIATE_LICENSE_KEY }}
         - name: Check the configured values
           run: |
               set -ex
@@ -230,6 +232,21 @@ jobs:
                   echo "Error: env.PERSISTENCE_LSM_ACCESS_STRATEGY is not equal to pread. Found $env_value"
                   exit 1
               fi
+              # Verify the enterprise license key reached the pods as LICENSE_KEY.
+              # Disable tracing so the key is not echoed, and only check when the
+              # secret is available (it is empty for PRs from forks).
+              set +x
+              if [[ -n "$WEAVIATE_LICENSE_KEY" ]]; then
+                  env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LICENSE_KEY")].value}')
+                  if [[ "$env_value" != "$WEAVIATE_LICENSE_KEY" ]]; then
+                      echo "Error: env.LICENSE_KEY does not match the WEAVIATE_LICENSE_KEY secret"
+                      exit 1
+                  fi
+                  echo "env.LICENSE_KEY matches the WEAVIATE_LICENSE_KEY secret"
+              else
+                  echo "WEAVIATE_LICENSE_KEY secret not available, skipping LICENSE_KEY check"
+              fi
+              set -x
               for ((i=0; i<${{ env.REPLICAS }}; i++)); do
                 PORT=$((${{ env.WEAVIATE_PORT }} + i + 1))
                 GRPC_PORT=$((${{ env.WEAVIATE_GRPC_PORT }} + i + 1))
