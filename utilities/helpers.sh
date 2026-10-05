@@ -738,6 +738,21 @@ extraVolumeMounts:
 TZEOF
     helm_values="${helm_values} -f /tmp/weaviate-tz-values.yaml"
 
+    # Enterprise license: WEAVIATE_LICENSE_KEY holds the key itself or a path to a
+    # license file on the runner. Injected through a temp values file rather than
+    # --set so the key never appears in the echoed helm values.
+    if [[ -n "${WEAVIATE_LICENSE_KEY:-}" ]]; then
+        local license_key="$WEAVIATE_LICENSE_KEY"
+        if [[ -f "$license_key" ]]; then
+            license_key=$(cat "$license_key")
+        fi
+        cat <<LICEOF > /tmp/weaviate-license-values.yaml
+env:
+  LICENSE_KEY: "${license_key}"
+LICEOF
+        helm_values="${helm_values} -f /tmp/weaviate-license-values.yaml"
+    fi
+
     # Declare MODULES_ARRAY variable
     declare -a MODULES_ARRAY
 

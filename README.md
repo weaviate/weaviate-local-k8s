@@ -17,6 +17,7 @@ This GitHub composite action allows you to deploy Weaviate to a local Kubernetes
   - `text2vec-transformers-model2vec`: Uses a static model2vec image to deploy a transformers model. This option provides faster performance but lower embedding quality compared to standard transformers modules.
 - **delete-sts**: Allows deleting the Weaviate statefulset before perfoming an upgrade operation. Required for the upgrade from non-RAFT (pre-1.25) to RAFT (1.25)
 - **enable-backup**: When set to true it configures Weaviate to support S3 backups using MinIO. Refer to the [backup and restore](https://weaviate.io/developers/weaviate/configuration/backups#) documentation for more information.
+- **weaviate-license-key**: Enterprise license key, or a path to a license file on the runner; injected into the Weaviate pods as the `LICENSE_KEY` environment variable. Empty (the default) disables it.
 - **s3-offload**: When set to true it configures Weaviate to support S3 tenant offloading using MinIO. This functionality is only supported in Weaviate 1.26
 - **usage-s3**: When set to true it configures Weaviate to support S3 collecting usage metrics in s3 with minio. Only supported in version 1.32 and greater. `enable-runtime-overrides` must also be enabled for this setting to work.
 - **enable-runtime-overrides**: Enables runtime configuration for Weaviate.
