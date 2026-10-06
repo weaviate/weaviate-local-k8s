@@ -49,6 +49,8 @@ module deployments inherit it and would hard-repel weaviate pods.
 | RBAC auth | `RBAC=true` |
 | OIDC auth | `OIDC=true RBAC=true` |
 | Dynamic users | `DYNAMIC_USERS=true RBAC=true` |
+| Namespaces (isolated tenants in one cluster, 1.38+) | `NAMESPACES=true RBAC=true DYNAMIC_USERS=true` |
+| N pre-created namespaces, each like its own cluster | `NAMESPACES=true NAMESPACE_COUNT=2 RBAC=true DYNAMIC_USERS=true` (keys in `/tmp/weaviate-namespaces.env`) |
 | S3 backups | `ENABLE_BACKUP=true` |
 | Collection export | `COLLECTION_EXPORT=true` |
 | Tenant offloading | `S3_OFFLOAD=true` |

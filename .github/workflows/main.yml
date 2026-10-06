@@ -713,6 +713,276 @@ jobs:
               echo "Error: Weaviate metrics is not listening, returned $error"
               exit 1
             fi
+    run-weaviate-local-k8s-namespaces:
+      needs: get-latest-weaviate-version
+      runs-on: ubuntu-latest
+      name: Invoke weaviate-local-k8s action with namespaces (two isolated namespaces in one cluster)
+      env:
+        WORKERS: '3'
+        REPLICAS: '3'
+        WEAVIATE_VERSION: ${{ needs.get-latest-weaviate-version.outputs.LATEST_WEAVIATE_VERSION }}
+        WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
+        WEAVIATE_URL: 'http://127.0.0.1:8080'
+        OBJECT_ID: '00000000-0000-0000-0000-000000000001'
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v2
+        - name: Deploy weaviate-local-k8s from current branch.
+          id: invoke-local-k8s
+          uses: ./
+          with:
+            workers: ${{ env.WORKERS }}
+            replicas: ${{ env.REPLICAS }}
+            weaviate-version: ${{ env.WEAVIATE_VERSION }}
+            rbac: 'true'
+            dynamic-users: 'true'
+            namespaces: 'true'
+            namespace-count: '2'
+            expose-pods: 'false'
+            weaviate-license-key: ${{ env.WEAVIATE_LICENSE_KEY }}
+        - name: Check the configured values
+          run: |
+            set -ex
+            replicas=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.replicas}")
+            if [[ "$replicas" -ne ${{ env.REPLICAS }} ]]; then
+                echo "Error: Replicas count is not equal to ${{ env.REPLICAS }}. Found $replicas"
+                exit 1
+            fi
+            workers=$(kubectl get nodes --selector=node-role.kubernetes.io/control-plane!= --no-headers | wc -l)
+            if [[ "$workers" -ne ${{ env.WORKERS }} ]]; then
+                echo "Error: Workers count is not equal to ${{ env.WORKERS }}. Found $workers"
+                exit 1
+            fi
+            versions=$(curl -H "Authorization: Bearer admin-key" -s $WEAVIATE_URL/v1/nodes | jq '.nodes[] | .version' | tr -d '"')
+            for version in `echo $versions | tr '\n' ' '`; do
+                if [[ "$version" != "${{ env.WEAVIATE_VERSION }}" ]]; then
+                    echo "Error: Version is not equal to ${{ env.WEAVIATE_VERSION }}. Found $version"
+                    exit 1
+                fi
+            done
+            # NAMESPACES=true must translate into the Weaviate startup invariants.
+            for pair in NAMESPACES_ENABLED=true DISABLE_GRAPHQL=true REPLICATION_MAXIMUM_FACTOR=1 NAMESPACE_CLEANUP_INTERVAL=5s; do
+                name=${pair%%=*}; want=${pair#*=}
+                env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$name\")].value}")
+                if [[ "$env_value" != "$want" ]]; then
+                    echo "Error: env.$name is not equal to $want. Found '$env_value'"
+                    exit 1
+                fi
+            done
+            # The chart renders authentication.db_users / authorization.rbac into the
+            # weaviate-config ConfigMap (conf.yaml), not into the StatefulSet env.
+            conf=$(kubectl get configmap weaviate-config -n weaviate -o=jsonpath='{.data.conf\.yaml}')
+            for path in .authentication.db_users.enabled .authorization.rbac.enabled; do
+                conf_value=$(echo "$conf" | yq -r "$path")
+                if [[ "$conf_value" != "true" ]]; then
+                    echo "Error: weaviate-config conf.yaml $path is not true. Found '$conf_value'"
+                    echo "$conf"
+                    exit 1
+                fi
+            done
+            # Verify the enterprise license key reached the pods as LICENSE_KEY.
+            # Disable tracing so the key is not echoed, and only check when the
+            # secret is available (it is empty for PRs from forks).
+            set +x
+            if [[ -n "$WEAVIATE_LICENSE_KEY" ]]; then
+                env_value=$(kubectl get sts weaviate -n weaviate -o=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LICENSE_KEY")].value}')
+                if [[ "$env_value" != "$WEAVIATE_LICENSE_KEY" ]]; then
+                    echo "Error: env.LICENSE_KEY does not match the WEAVIATE_LICENSE_KEY secret"
+                    exit 1
+                fi
+                echo "env.LICENSE_KEY matches the WEAVIATE_LICENSE_KEY secret"
+            else
+                echo "WEAVIATE_LICENSE_KEY secret not available, skipping LICENSE_KEY check"
+            fi
+            set -x
+        - name: Namespaces behave like two isolated clusters
+          run: |
+            set -ex
+            ADMIN=(-H "Authorization: Bearer admin-key" -H "Content-Type: application/json")
+
+            # retry_code <want> <label> <curl args...>: poll until the HTTP status matches.
+            # Called directly (never inside $(...)) so exit 1 aborts the step.
+            retry_code() {
+              local want=$1 label=$2; shift 2
+              for retry in {1..30}; do
+                code=$(curl -s -o /dev/null -w "%{http_code}" "$@")
+                if [[ "$code" == "$want" ]]; then
+                  echo "$label -> $code"
+                  return 0
+                fi
+                echo "$label returned $code, want $want (retry $retry/30)"
+                sleep 2
+              done
+              echo "ERROR: $label never returned $want"
+              exit 1
+            }
+
+            # wait_ns_state <ns> <state>: poll GET /v1/namespaces/<ns> until .state matches.
+            wait_ns_state() {
+              local ns=$1 want=$2
+              for retry in {1..30}; do
+                state=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/namespaces/$ns" | jq -r '.state // empty')
+                if [[ "$state" == "$want" ]]; then
+                  echo "namespace $ns is $want"
+                  return 0
+                fi
+                echo "namespace $ns state '$state', waiting for '$want' (retry $retry/30)"
+                sleep 2
+              done
+              echo "ERROR: namespace $ns never reached state $want"
+              exit 1
+            }
+
+            # wait_title <label> <expected title> <auth args...>: poll the object until its title matches.
+            # Reads go through the service to any pod, so tolerate schema/replication lag.
+            wait_title() {
+              local label=$1 want=$2; shift 2
+              for retry in {1..30}; do
+                title=$(curl -s "$@" "$WEAVIATE_URL/v1/objects/Movies/$OBJECT_ID" | jq -r '.properties.title // empty')
+                if [[ "$title" == "$want" ]]; then
+                  echo "$label sees title '$title'"
+                  return 0
+                fi
+                echo "$label sees title '$title', want '$want' (retry $retry/30)"
+                sleep 2
+              done
+              echo "ERROR: $label never saw title '$want'"
+              exit 1
+            }
+
+            # check_placement <qualified class> <home node>: every shard of the class must
+            # sit on the home node and nowhere else (mirrors placement_test.go in weaviate).
+            check_placement() {
+              local class=$1 home=$2
+              for retry in {1..30}; do
+                nodes=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/nodes/$class?output=verbose")
+                home_shards=$(jq --arg n "$home" --arg c "$class" '[.nodes[]? | select(.name==$n) | (.shards // [])[] | select(.class==$c)] | length' <<<"$nodes")
+                other_shards=$(jq --arg n "$home" --arg c "$class" '[.nodes[]? | select(.name!=$n) | (.shards // [])[] | select(.class==$c)] | length' <<<"$nodes")
+                if [[ "$home_shards" == "1" && "$other_shards" == "0" ]]; then
+                  echo "$class: 1 shard on $home, 0 elsewhere"
+                  return 0
+                fi
+                echo "$class: $home_shards shard(s) on $home, $other_shards elsewhere (retry $retry/30)"
+                sleep 2
+              done
+              echo "ERROR: $class is not pinned to $home"
+              echo "$nodes" | jq '.nodes[]? | {name, shards: [(.shards // [])[] | {class, name}]}'
+              exit 1
+            }
+
+            # --- 1. namespace-count=2 pre-created ns1 and ns2 on two different home nodes
+            wait_ns_state ns1 active
+            wait_ns_state ns2 active
+            names=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/namespaces" | jq -r '.[].name' | sort | tr '\n' ' ')
+            if [[ "$names" != "ns1 ns2 " ]]; then
+              echo "Error: expected namespaces 'ns1 ns2', found '$names'"
+              exit 1
+            fi
+            for pair in ns1=weaviate-0 ns2=weaviate-1; do
+              ns=${pair%%=*}; want=${pair#*=}
+              home=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/namespaces/$ns" | jq -r '.home_node')
+              if [[ "$home" != "$want" ]]; then
+                echo "Error: $ns home_node is '$home', expected $want"
+                exit 1
+              fi
+            done
+
+            # --- 2. One pre-created DB user per namespace (keys are never traced) ---
+            set +x
+            source /tmp/weaviate-namespaces.env
+            for var in NS1_API_KEY NS2_API_KEY; do
+              if [[ -z "${!var}" ]]; then
+                echo "Error: $var missing from /tmp/weaviate-namespaces.env"
+                exit 1
+              fi
+              echo "::add-mask::${!var}"
+            done
+            U1=(-H "Authorization: Bearer $NS1_API_KEY" -H "Content-Type: application/json")
+            U2=(-H "Authorization: Bearer $NS2_API_KEY" -H "Content-Type: application/json")
+            set -x
+            if [[ "$NS1_USER" != "ns1:admin" || "$NS2_HOME_NODE" != "weaviate-1" ]]; then
+              echo "Error: unexpected namespace env file contents: NS1_USER='$NS1_USER' NS2_HOME_NODE='$NS2_HOME_NODE'"
+              exit 1
+            fi
+            retry_code 200 "u1 own-info" "${U1[@]}" "$WEAVIATE_URL/v1/users/own-info"
+            retry_code 200 "u2 own-info" "${U2[@]}" "$WEAVIATE_URL/v1/users/own-info"
+            # Each user is reported under its short name and holds the admin role.
+            u1_info=$(curl -s "${U1[@]}" "$WEAVIATE_URL/v1/users/own-info")
+            if [[ "$(jq -r '.username' <<<"$u1_info")" != "admin" ]] || ! jq -e '.roles[] | select(.name=="admin")' <<<"$u1_info" >/dev/null; then
+              echo "Error: unexpected own-info for ns1 user: $u1_info"
+              exit 1
+            fi
+
+            # --- 3. Same short class and same UUID in both namespaces ---------------
+            CLASS='{"class":"Movies","properties":[{"name":"title","dataType":["text"]}]}'
+            retry_code 200 "u1 create Movies" "${U1[@]}" -X POST "$WEAVIATE_URL/v1/schema" -d "$CLASS"
+            retry_code 200 "u2 create Movies" "${U2[@]}" -X POST "$WEAVIATE_URL/v1/schema" -d "$CLASS"
+            retry_code 200 "u1 insert" "${U1[@]}" -X POST "$WEAVIATE_URL/v1/objects" -d "{\"class\":\"Movies\",\"id\":\"$OBJECT_ID\",\"properties\":{\"title\":\"ns1-movie\"}}"
+            retry_code 200 "u2 insert" "${U2[@]}" -X POST "$WEAVIATE_URL/v1/objects" -d "{\"class\":\"Movies\",\"id\":\"$OBJECT_ID\",\"properties\":{\"title\":\"ns2-movie\"}}"
+            wait_title "u1" "ns1-movie" "${U1[@]}"
+            wait_title "u2" "ns2-movie" "${U2[@]}"
+            # Each user sees only its own short class name.
+            u1_classes=$(curl -s "${U1[@]}" "$WEAVIATE_URL/v1/schema" | jq -r '.classes[].class' | tr '\n' ' ')
+            if [[ "$u1_classes" != "Movies " ]]; then
+              echo "Error: u1 schema should be exactly 'Movies', found '$u1_classes'"
+              exit 1
+            fi
+            # A namespaced user may not address a qualified name, its own or another's.
+            retry_code 422 "u1 reading ns2:Movies" "${U1[@]}" "$WEAVIATE_URL/v1/objects/ns2:Movies/$OBJECT_ID"
+            retry_code 422 "u1 reading ns1:Movies" "${U1[@]}" "$WEAVIATE_URL/v1/objects/ns1:Movies/$OBJECT_ID"
+            # The admin (global operator) sees both, namespace-qualified.
+            for retry in {1..30}; do
+              admin_classes=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/schema" | jq -r '.classes[].class' | sort | tr '\n' ' ')
+              [[ "$admin_classes" == "ns1:Movies ns2:Movies " ]] && break
+              echo "admin schema is '$admin_classes' (retry $retry/30)"
+              sleep 2
+              if [[ $retry -eq 30 ]]; then
+                echo "Error: admin schema should be exactly 'ns1:Movies ns2:Movies'"
+                exit 1
+              fi
+            done
+            admin_title=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/objects/ns2:Movies/$OBJECT_ID" | jq -r '.properties.title')
+            if [[ "$admin_title" != "ns2-movie" ]]; then
+              echo "Error: admin read of ns2:Movies/$OBJECT_ID returned '$admin_title'"
+              exit 1
+            fi
+
+            # --- 4. Placement: every shard lives on the namespace's home_node -------
+            check_placement ns1:Movies weaviate-0
+            check_placement ns2:Movies weaviate-1
+
+            # --- 5. Suspend and resume ns1; ns2 is unaffected -----------------------
+            retry_code 202 "suspend ns1" "${ADMIN[@]}" -X POST "$WEAVIATE_URL/v1/namespaces/ns1/suspend"
+            wait_ns_state ns1 suspended
+            retry_code 401 "u1 while suspended" "${U1[@]}" "$WEAVIATE_URL/v1/objects/Movies/$OBJECT_ID"
+            wait_title "u2 during ns1 suspension" "ns2-movie" "${U2[@]}"
+            retry_code 202 "resume ns1" "${ADMIN[@]}" -X POST "$WEAVIATE_URL/v1/namespaces/ns1/resume"
+            wait_ns_state ns1 active
+            wait_title "u1 after resume" "ns1-movie" "${U1[@]}"
+
+            # --- 6. Delete ns2; ns1 is unaffected -----------------------------------
+            retry_code 202 "delete ns2" "${ADMIN[@]}" -X DELETE "$WEAVIATE_URL/v1/namespaces/ns2"
+            # GET keeps answering 200 with state "deleting" until cleanup finishes.
+            retry_code 404 "ns2 gone" "${ADMIN[@]}" "$WEAVIATE_URL/v1/namespaces/ns2"
+            names=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/namespaces" | jq -r '.[].name' | tr '\n' ' ')
+            if [[ "$names" != "ns1 " ]]; then
+              echo "Error: expected only 'ns1' after delete, found '$names'"
+              exit 1
+            fi
+            for retry in {1..30}; do
+              admin_classes=$(curl -s "${ADMIN[@]}" "$WEAVIATE_URL/v1/schema" | jq -r '.classes[].class' | tr '\n' ' ')
+              [[ "$admin_classes" == "ns1:Movies " ]] && break
+              echo "admin schema is '$admin_classes' (retry $retry/30)"
+              sleep 2
+              if [[ $retry -eq 30 ]]; then
+                echo "Error: admin schema should be exactly 'ns1:Movies' after deleting ns2"
+                exit 1
+              fi
+            done
+            # Namespace deletion tears down its users: u2's key is rejected.
+            retry_code 401 "u2 after ns2 delete" "${U2[@]}" "$WEAVIATE_URL/v1/users/own-info"
+            wait_title "u1 after ns2 delete" "ns1-movie" "${U1[@]}"
+            check_placement ns1:Movies weaviate-0
     run-weaviate-local-k8s-expose-pods:
       needs: get-latest-weaviate-version
       runs-on: ubuntu-latest

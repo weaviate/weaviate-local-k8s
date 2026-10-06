@@ -69,6 +69,8 @@ All are string `"true"` / `"false"`.
 | `RBAC` | `"false"` | Role-Based Access Control | Default: admin-user/admin-key |
 | `OIDC` | `"false"` | OpenID Connect via Keycloak | Deploys Keycloak |
 | `DYNAMIC_USERS` | `"false"` | Runtime user management | |
+| `NAMESPACES` | `"false"` | Weaviate namespaces (1.38+): logical isolation inside one cluster. Sets `NAMESPACES_ENABLED=true`, `DISABLE_GRAPHQL=true`, `REPLICATION_MAXIMUM_FACTOR=1`, `NAMESPACE_CLEANUP_INTERVAL=5s` | Requires `RBAC=true` and `DYNAMIC_USERS=true`; GraphQL is unavailable; new clusters only |
+| `NAMESPACE_COUNT` | `0` | Namespaces to create after setup (`ns1`..`nsN`), each pinned round-robin to a pod as `home_node` with one DB user `<ns>:admin` holding the admin role; API keys written to `NAMESPACES_ENV_FILE` (default `/tmp/weaviate-namespaces.env`) as `NS<i>_API_KEY` | Requires `NAMESPACES=true`; setup only, and the users must not already exist |
 | `DASH0` | `"false"` | Dash0 observability platform | Requires `DASH0_TOKEN` |
 | `DEBUG` | `"false"` | Enables `set -x` in scripts | |
 | `MCP_ENABLED` | `"false"` | Enable MCP server (accessible via `/v1/mcp`) | |
@@ -112,3 +114,6 @@ All are string `"true"` / `"false"`.
 5. Any of `ENABLE_BACKUP`, `S3_OFFLOAD`, `USAGE_S3` being `true` triggers MinIO deployment
 6. `rbac` and `admin_list` are mutually exclusive in Helm auth config
 7. `MCP_WRITE_ACCESS_ENABLED=true` requires `MCP_ENABLED=true`
+8. `NAMESPACES=true` requires `RBAC=true` and `DYNAMIC_USERS=true`. Weaviate also refuses to start if `DISABLE_GRAPHQL=true` or `REPLICATION_MAXIMUM_FACTOR=1` are overridden away, if an existing cluster already has non-namespaced collections, or if namespaces are turned off once any exist
+9. `NAMESPACES=true` with `OIDC=true` additionally needs `AUTHENTICATION_OIDC_NAMESPACE_CLAIM` and `AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM` (pass via `AUTH_CONFIG` or `VALUES_INLINE`)
+10. `NAMESPACE_COUNT>0` requires `NAMESPACES=true`. A count above `REPLICAS` stacks namespaces on the same home node

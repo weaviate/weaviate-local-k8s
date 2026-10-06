@@ -32,6 +32,8 @@ inputs:
   rbac:                # -> RBAC (default: 'false')
   oidc:                # -> OIDC (default: 'false')
   dynamic-users:       # -> DYNAMIC_USERS (default: 'false')
+  namespaces:          # -> NAMESPACES (default: 'false'; requires rbac + dynamic-users)
+  namespace-count:     # -> NAMESPACE_COUNT (default: '0'; requires namespaces)
   auth-config:         # -> AUTH_CONFIG (default: '')
   debug:               # -> DEBUG (default: 'false')
   enable-runtime-overrides: # -> ENABLE_RUNTIME_OVERRIDES
@@ -96,6 +98,7 @@ On failure, the action dumps:
 | `run-weaviate-local-k8s-raft-downgrade` | Raft downgrade | 1.25.0 -> 1.24.9 |
 | `run-weaviate-local-k8s-upgrade-to-latest` | Upgrade to latest | 1.26.0 -> latest |
 | `run-weaviate-local-k8s-backup` | Backup functionality | ENABLE_BACKUP=true |
+| `run-weaviate-local-k8s-namespaces` | Two isolated namespaces in one cluster | WORKERS=3, REPLICAS=3, RBAC, DYNAMIC_USERS, NAMESPACES, NAMESPACE_COUNT=2, EXPOSE_PODS=false |
 | `run-weaviate-local-k8s-clean` | Clean operation | Verify cleanup works |
 | `run-weaviate-local-k8s-single-node` | Single node | WORKERS=0, REPLICAS=1 |
 

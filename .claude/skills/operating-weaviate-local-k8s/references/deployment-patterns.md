@@ -153,6 +153,30 @@ WEAVIATE_VERSION="1.28.0" MCP_ENABLED=true MCP_WRITE_ACCESS_ENABLED=true ./local
 
 Verify: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/v1/mcp` (expect 200).
 
+### Namespaces (Multiple Isolated Tenants in One Cluster)
+
+```bash
+WORKERS=3 REPLICAS=3 WEAVIATE_VERSION="1.39.7" \
+NAMESPACES=true NAMESPACE_COUNT=2 RBAC=true DYNAMIC_USERS=true \
+./local-k8s.sh setup
+source /tmp/weaviate-namespaces.env   # NS1_API_KEY, NS2_API_KEY, NS<i>_NAME/_HOME_NODE/_USER
+curl -s -H "Authorization: Bearer $NS1_API_KEY" localhost:8080/v1/schema
+```
+
+`NAMESPACE_COUNT=N` makes setup create `ns1`..`nsN` after the cluster is healthy, pinned round-robin to the pods (`ns1` on `weaviate-0`, `ns2` on `weaviate-1`, ...), each with one DB user `<ns>:admin` holding the admin role. Leave it at `0` to create namespaces by hand as shown below.
+
+Sets `NAMESPACES_ENABLED=true`, `DISABLE_GRAPHQL=true`, `REPLICATION_MAXIMUM_FACTOR=1` and `NAMESPACE_CLEANUP_INTERVAL=5s`. Each namespace has a single `home_node` (the pod name, e.g. `weaviate-0`) that holds all its shards, so two namespaces on two different home nodes behave like two separately deployed clusters. The namespace is selected by the authenticated user, never by a header or path: the static `admin-key` is a global operator, and each DB user belongs to exactly one namespace.
+
+```bash
+H=(-H "Authorization: Bearer admin-key" -H "Content-Type: application/json")
+curl -s "${H[@]}" -X POST localhost:8080/v1/namespaces/ns1 -d '{"home_node":"weaviate-0"}'   # 201
+curl -s "${H[@]}" -X POST localhost:8080/v1/users/db/ns1:u1 -d '{}' | jq -r .apikey           # namespaced user key
+curl -s "${H[@]}" -X POST localhost:8080/v1/authz/users/ns1:u1/assign \
+  -d '{"roles":["admin"],"userType":"db"}'                                                   # admin role, confined to ns1
+```
+
+The namespaced user then creates classes with short names (`Movies`); the admin sees them as `ns1:Movies` in `GET /v1/schema` and can read `GET /v1/objects/ns1:Movies/{id}`. A namespaced user sending a qualified name gets 422. Lifecycle: `POST /v1/namespaces/ns1/suspend` (its users get 401 until `.../resume`), `DELETE /v1/namespaces/ns1` (async; poll `GET /v1/namespaces/ns1` until 404). Verify placement with `GET /v1/nodes/ns1:Movies?output=verbose`. Override the cleanup interval with `VALUES_INLINE="--set env.NAMESPACE_CLEANUP_INTERVAL=30s"`.
+
 ### CI/CD Pipeline
 
 ```bash

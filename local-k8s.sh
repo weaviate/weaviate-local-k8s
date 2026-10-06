@@ -72,6 +72,8 @@ MCP=${MCP:-"false"}
 MCP_WRITE_ACCESS=${MCP_WRITE_ACCESS:-"false"}
 DOCKER_CONFIG=${DOCKER_CONFIG:-""}
 ENABLE_RUNTIME_OVERRIDES=${ENABLE_RUNTIME_OVERRIDES:-"false"}
+NAMESPACES=${NAMESPACES:-"false"}
+NAMESPACE_COUNT=${NAMESPACE_COUNT:-0}
 RUNTIME_OVERRIDES_PATH=${RUNTIME_OVERRIDES_PATH:-"/config/overrides.yaml"}
 
 if [[ $DEBUG == "true" ]]; then
@@ -236,6 +238,27 @@ EOF
         exit 1
     fi
 
+    # Weaviate refuses to start namespaces without RBAC, and namespaced users are
+    # DB users, so both must be on. See generate_helm_values for the env vars set.
+    if [[ $NAMESPACES == "true" ]] && { [[ $RBAC != "true" ]] || [[ $DYNAMIC_USERS != "true" ]]; }; then
+        echo_red "Must set RBAC=true and DYNAMIC_USERS=true if NAMESPACES is enabled"
+        exit 1
+    fi
+
+    if [[ ! $NAMESPACE_COUNT =~ ^[0-9]+$ ]]; then
+        echo_red "NAMESPACE_COUNT must be a non-negative integer, got '$NAMESPACE_COUNT'"
+        exit 1
+    fi
+
+    if [[ $NAMESPACE_COUNT -gt 0 ]] && [[ $NAMESPACES != "true" ]]; then
+        echo_red "Must set NAMESPACES=true if NAMESPACE_COUNT is greater than 0"
+        exit 1
+    fi
+
+    if [[ $NAMESPACES == "true" ]] && [[ $OIDC == "true" ]]; then
+        echo_yellow "NAMESPACES with OIDC requires AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM (pass them via AUTH_CONFIG or VALUES_INLINE) or Weaviate will refuse to start"
+    fi
+
     if [[ $OIDC == "true" ]]; then
         startup_keycloak
     fi
@@ -295,6 +318,9 @@ EOF
 
     # Check if Weaviate is up
     wait_for_all_healthy_nodes $REPLICAS
+    if [[ $NAMESPACE_COUNT -gt 0 ]]; then
+        create_namespaces $NAMESPACE_COUNT
+    fi
     echo_green "setup # Success"
     echo_green "setup # Weaviate is up and running on http://localhost:$WEAVIATE_PORT"
     if [[ $EXPOSE_PODS == "true" ]]; then

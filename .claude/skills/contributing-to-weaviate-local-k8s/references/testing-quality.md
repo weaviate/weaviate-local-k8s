@@ -15,6 +15,7 @@ Test coverage map, adding tests, and quality standards.
 | Upgrade to latest | `run-weaviate-local-k8s-upgrade-to-latest` | 1.26.0 -> latest with EXPOSE_PODS |
 | Backup | `run-weaviate-local-k8s-backup` | MinIO, backup operations |
 | RBAC | `run-weaviate-local-k8s-rbac` | RBAC auth with admin-key/admin-user |
+| Namespaces | `run-weaviate-local-k8s-namespaces` | `NAMESPACES=true` env invariants on the STS, `NAMESPACE_COUNT=2` pre-creates `ns1`/`ns2` on different `home_node`s with `<ns>:admin` DB users (keys sourced from `/tmp/weaviate-namespaces.env`), same short class and UUID isolated per namespace, admin sees qualified names, shard placement via `/v1/nodes/{class}?output=verbose`, suspend/resume (401 while suspended), async delete (user key revoked, other namespace untouched), license key from `WEAVIATE_LICENSE_KEY` |
 | Expose pods | `run-weaviate-local-k8s-expose-pods` | Per-pod port forwarding, pod restart reconnection |
 | OIDC | `run-weaviate-local-k8s-oidc` | Keycloak OIDC, user creation, token auth |
 | Port in use | `run-weaviate-local-k8s-port-in-use` | Port availability check fails when port occupied |

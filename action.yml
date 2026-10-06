@@ -106,6 +106,14 @@ inputs:
     description: 'Enable dynamic user management. Allows users to be created, deleted and updated dynamically from the database'
     required: false
     default: 'false'
+  namespaces:
+    description: 'Enable Weaviate namespaces (logical isolation inside one cluster, Weaviate >= 1.38). Sets NAMESPACES_ENABLED=true, DISABLE_GRAPHQL=true, REPLICATION_MAXIMUM_FACTOR=1 and NAMESPACE_CLEANUP_INTERVAL=5s. Requires rbac=true and dynamic-users=true.'
+    required: false
+    default: 'false'
+  namespace-count:
+    description: 'Number of namespaces to create after setup (ns1..nsN), each pinned round-robin to a Weaviate pod as its home node, with one DB user "<ns>:admin" holding the admin role. API keys are written to /tmp/weaviate-namespaces.env. Requires namespaces=true.'
+    required: false
+    default: '0'
   auth-config:
     description: 'File location containing the authentication and authorization configuration in YAML format'
     required: false
@@ -172,6 +180,8 @@ runs:
         RBAC: ${{ inputs.rbac }}
         OIDC: ${{ inputs.oidc }}
         DYNAMIC_USERS: ${{ inputs.dynamic-users }}
+        NAMESPACES: ${{ inputs.namespaces }}
+        NAMESPACE_COUNT: ${{ inputs.namespace-count }}
         AUTH_CONFIG: ${{ inputs.auth-config }}
         EXPOSE_PODS: ${{ inputs.expose-pods }}
         ENABLE_RUNTIME_OVERRIDES: ${{ inputs.enable-runtime-overrides }}

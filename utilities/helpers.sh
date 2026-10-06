@@ -710,6 +710,122 @@ EOF
     done
 }
 
+# File that create_namespaces writes the per-namespace user API keys to.
+NAMESPACES_ENV_FILE=${NAMESPACES_ENV_FILE:-"/tmp/weaviate-namespaces.env"}
+
+# create_namespaces <count>
+# Creates ns1..ns<count>, each pinned to a home node round-robin across the
+# Weaviate pods (ns1 -> weaviate-0, ns2 -> weaviate-1, ...), so every namespace
+# behaves like its own cluster. Each namespace gets one DB user "<ns>:admin"
+# holding the built-in admin role, which Weaviate confines to that namespace.
+# The generated API keys are written to $NAMESPACES_ENV_FILE as
+# NS<i>_NAME, NS<i>_HOME_NODE, NS<i>_USER and NS<i>_API_KEY, ready to source.
+# Idempotent for namespaces (409 is accepted), but a user that already exists
+# cannot have its key read back, so re-running against an existing cluster
+# fails on that user.
+function create_namespaces() {
+    local count=$1
+    local base_url="http://localhost:${WEAVIATE_PORT}"
+    local bearer
+    bearer=$(get_bearer_token)
+    if [[ -z "$bearer" ]]; then
+        echo_red "create_namespaces # No API key found; NAMESPACE_COUNT requires RBAC with an api key"
+        exit 1
+    fi
+    local admin=(-H "Authorization: Bearer $bearer" -H "Content-Type: application/json")
+    local traced="false"
+    if [[ $- == *x* ]]; then traced="true"; set +x; fi
+
+    : > "$NAMESPACES_ENV_FILE"
+    chmod 600 "$NAMESPACES_ENV_FILE"
+
+    local i ns home user code resp key retry
+    for i in $(seq 1 "$count"); do
+        ns="ns${i}"
+        home="weaviate-$(( (i - 1) % REPLICAS ))"
+        user="${ns}:admin"
+
+        # Create the namespace pinned to its home node (409 = already there).
+        code=""
+        for retry in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${admin[@]}" -X POST \
+                "$base_url/v1/namespaces/$ns" -d "{\"home_node\":\"$home\"}")
+            if [[ "$code" == "201" || "$code" == "409" ]]; then break; fi
+            echo_yellow "create_namespaces # Creating $ns returned $code, retrying ($retry/30)"
+            sleep 2
+        done
+        if [[ "$code" != "201" && "$code" != "409" ]]; then
+            echo_red "create_namespaces # Failed to create namespace $ns (last status $code)"
+            exit 1
+        fi
+        # Followers apply the namespace asynchronously; wait until it is active.
+        for retry in {1..30}; do
+            state=$(curl -s "${admin[@]}" "$base_url/v1/namespaces/$ns" | jq -r '.state // empty')
+            if [[ "$state" == "active" ]]; then break; fi
+            sleep 2
+        done
+        if [[ "$state" != "active" ]]; then
+            echo_red "create_namespaces # Namespace $ns never became active (state '$state')"
+            exit 1
+        fi
+
+        # Create the namespaced DB user. A follower may answer 422 before it has
+        # applied the namespace, so retry; 409 means it exists and the key is lost.
+        key=""
+        for retry in {1..30}; do
+            resp=$(curl -s -w '\n%{http_code}' "${admin[@]}" -X POST "$base_url/v1/users/db/$user" -d '{}')
+            code=$(tail -n1 <<<"$resp")
+            if [[ "$code" == "201" ]]; then
+                key=$(sed '$d' <<<"$resp" | jq -r '.apikey // empty')
+                [[ -n "$key" ]] && break
+            elif [[ "$code" == "409" ]]; then
+                echo_red "create_namespaces # User $user already exists; its API key cannot be retrieved. Delete it or clean the cluster first."
+                exit 1
+            fi
+            echo_yellow "create_namespaces # Creating user $user returned $code, retrying ($retry/30)"
+            sleep 2
+        done
+        if [[ -z "$key" ]]; then
+            echo_red "create_namespaces # Failed to create user $user"
+            exit 1
+        fi
+        if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$key"; fi
+
+        # Grant the built-in admin role (confined to the user's namespace).
+        for retry in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${admin[@]}" -X POST \
+                "$base_url/v1/authz/users/$user/assign" -d '{"roles":["admin"],"userType":"db"}')
+            if [[ "$code" == "200" ]]; then break; fi
+            echo_yellow "create_namespaces # Assigning admin role to $user returned $code, retrying ($retry/30)"
+            sleep 2
+        done
+        if [[ "$code" != "200" ]]; then
+            echo_red "create_namespaces # Failed to assign admin role to $user (last status $code)"
+            exit 1
+        fi
+        # The key is RAFT-replicated; wait until every node accepts it.
+        for retry in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $key" "$base_url/v1/users/own-info")
+            if [[ "$code" == "200" ]]; then break; fi
+            sleep 2
+        done
+        if [[ "$code" != "200" ]]; then
+            echo_red "create_namespaces # API key for $user not accepted (last status $code)"
+            exit 1
+        fi
+
+        {
+            echo "NS${i}_NAME=${ns}"
+            echo "NS${i}_HOME_NODE=${home}"
+            echo "NS${i}_USER=${user}"
+            echo "NS${i}_API_KEY=${key}"
+        } >> "$NAMESPACES_ENV_FILE"
+        echo_green "create_namespaces # $ns -> home node $home, user $user"
+    done
+    echo_green "create_namespaces # API keys written to $NAMESPACES_ENV_FILE (source it to get NS<i>_API_KEY)"
+    if [[ $traced == "true" ]]; then set -x; fi
+}
+
 function generate_helm_values() {
     local helm_values="--set image.tag=$WEAVIATE_VERSION \
                         --set replicas=$REPLICAS \
@@ -877,6 +993,24 @@ LICEOF
                 --set authentication.oidc.client_id=demo \
                 --set authentication.oidc.skip_client_id_check=false"
         fi
+    fi
+
+    # Namespaces: logical isolation inside one cluster (Weaviate >= 1.38).
+    # Weaviate refuses to start with NAMESPACES_ENABLED=true unless GraphQL is
+    # disabled, RBAC is enabled and the maximum replication factor is 1 (every
+    # namespace's shards are pinned to its single home_node). RBAC and
+    # DYNAMIC_USERS are enforced by setup(); the other invariants are set here.
+    # NAMESPACE_CLEANUP_INTERVAL is shortened from the 30s default so a deleted
+    # namespace is torn down quickly in tests. These are plain --set env.* flags,
+    # so VALUES_INLINE (appended later) can still override them, e.g.
+    # VALUES_INLINE="--set env.NAMESPACE_CLEANUP_INTERVAL=30s". Overriding the
+    # other invariants makes Weaviate fail loudly at boot rather than silently.
+    if [[ $NAMESPACES == "true" ]]; then
+        helm_values="${helm_values} \
+            --set env.NAMESPACES_ENABLED=true \
+            --set env.DISABLE_GRAPHQL=true \
+            --set env.REPLICATION_MAXIMUM_FACTOR=1 \
+            --set env.NAMESPACE_CLEANUP_INTERVAL=5s"
     fi
 
     # Check if AUTH_CONFIG is provided

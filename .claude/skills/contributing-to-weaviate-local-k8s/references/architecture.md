@@ -30,7 +30,7 @@ weaviate-local-k8s/
 ```
 User sets env vars (RBAC=true, REPLICAS=3, etc.)
     -> local-k8s.sh reads defaults (VAR=${VAR:-"default"})
-    -> validates dependencies (e.g., USAGE_S3 requires ENABLE_RUNTIME_OVERRIDES)
+    -> validates dependencies (e.g., USAGE_S3 requires ENABLE_RUNTIME_OVERRIDES, NAMESPACES requires RBAC + DYNAMIC_USERS)
     -> setup() called
         -> verify_ports_available()
         -> Kind cluster created (kind create cluster --config /tmp/kind-config.yaml)
@@ -83,6 +83,7 @@ User sets env vars (RBAC=true, REPLICAS=3, etc.)
 | `setup_helm()` | Configures Helm chart (repo or branch clone) | setup(), upgrade() |
 | `port_forward_to_weaviate()` | Installs kubectl-relay, forwards service ports | setup(), upgrade() |
 | `port_forward_weaviate_pods()` | Creates per-pod K8s services, forwards pod ports | setup(), upgrade() |
+| `create_namespaces()` | Creates `NAMESPACE_COUNT` namespaces pinned round-robin to pods, one `<ns>:admin` DB user each, writes keys to `NAMESPACES_ENV_FILE` | setup() |
 
 ### Health Check Functions
 
