@@ -220,3 +220,94 @@ kubectl get all -n weaviate
 # Verify environment variables
 kubectl get sts weaviate -n weaviate -o jsonpath='{.spec.template.spec.containers[0].env[*]}' | jq -r '.name'
 ```
+
+## Operator Deployment (DEPLOYMENT_METHOD=operator)
+
+Deploys Weaviate through the wcs-weaviate-operator instead of the helm chart:
+cert-manager is installed (operator webhooks), the operator is installed from
+`dist/install.yaml` of the resolved sources, and a `Weaviate` CR
+(`database.weaviate.io/v1alpha1`) named `weaviate` is applied. Resource names
+match the helm chart (`sts/weaviate`, `svc/weaviate`, `svc/weaviate-grpc`), so
+ports, health checks and `EXPOSE_PODS` behave identically.
+
+```bash
+# From main (clone + docker build; private repo: needs GH_TOKEN or SSH OPERATOR_REPO)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.36.8" REPLICAS=3 ./local-k8s.sh setup
+
+# From a local checkout / a pre-built image
+DEPLOYMENT_METHOD=operator OPERATOR_DIR=~/repos/wcs-weaviate-operator WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+DEPLOYMENT_METHOD=operator OPERATOR_IMAGE="wcs-weaviate-operator:pr-7" WEAVIATE_VERSION="1.36.8" ./local-k8s.sh setup
+
+# Upgrade: version change (via Upgrade CRD) + config reconcile
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.38.0" REPLICAS=3 ./local-k8s.sh upgrade
+
+# Scale up (same version): just pass a larger, valid REPLICAS (1 or odd >= 3)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.38.0" REPLICAS=5 RBAC=true ./local-k8s.sh upgrade
+
+# Upgrade with a pre-upgrade backup (needs ENABLE_BACKUP=true for an s3 backend)
+DEPLOYMENT_METHOD=operator WEAVIATE_VERSION="1.38.0" REPLICAS=3 \
+  ENABLE_BACKUP=true OPERATOR_UPGRADE_BACKUP=true ./local-k8s.sh upgrade
+```
+
+### Operator-mode upgrades (config/scaling + Upgrade CRD)
+
+`upgrade` in operator mode does two things, mirroring the helm path while honoring
+the operator's mechanisms:
+
+1. **Config + scaling** — it re-applies the Weaviate CR (replicas, auth, backup,
+   modules, resources, `cr-override.yaml`), but pins `spec.version` to the
+   currently-running version so this apply never changes the version.
+2. **Version** — if the requested `WEAVIATE_VERSION` differs from the running one,
+   it then creates an `Upgrade` resource (`database.weaviate.io/v1alpha1`, named
+   `weaviate-upgrade-<version>`), the operator's canonical mechanism: blocks
+   downgrades, optionally backs up, patches the version and waits for every pod to
+   be healthy at the new version. The script polls `Upgrade.status.phase` to
+   `Success` (aborts on `Failed`/`Cancelled`).
+
+**Scaling is supported, but scale-UP only.** The operator's webhook rejects
+reducing replicas (`you cannot downscale a weaviate instance`); weaviate-local-k8s
+detects a downscale request and fails fast — recreate the cluster (`clean` +
+`setup`) to shrink. Replicas must be 1 or an odd number >= 3.
+
+Backups are off by default (`skipBackups: true`). `OPERATOR_UPGRADE_BACKUP=true`
+flips `skipBackups` to false and sets `backend: s3`, which requires a configured
+backup backend (`ENABLE_BACKUP=true`, i.e. MinIO). Verify:
+
+```bash
+kubectl get weaviate weaviate -n weaviate -o jsonpath='{.spec.replicas}'        # new replica count
+kubectl get upgrades.database.weaviate.io -n weaviate
+kubectl get upgrade -n weaviate -o jsonpath='{.items[0].status.phase}'        # Success
+kubectl get upgrade -n weaviate -o jsonpath='{.items[0].status.lastBackupName}' # set when backed up
+```
+
+### Local vectorizer modules in operator mode
+
+The operator configures Weaviate to use a vectorizer but does not deploy the
+companion inference server (the helm chart does). For `text2vec-transformers`
+and `text2vec-model2vec`, weaviate-local-k8s deploys it itself from
+`manifests/transformers-inference.yaml` / `manifests/model2vec-inference.yaml`
+(same images as the helm path, so `--local-images` is reused) and wires the CR's
+`spec.podConfig.extraEnv` to point Weaviate at the in-cluster service:
+
+```bash
+DEPLOYMENT_METHOD=operator MODULES="text2vec-transformers,text2vec-model2vec" \
+  WEAVIATE_VERSION="1.37.0" REPLICAS=1 ./local-k8s.sh setup
+```
+
+Resources live in the `weaviate` namespace, so `clean()` removes them with it.
+Other modules requiring a companion deployment are enabled in the CR but stay
+non-functional (warned at setup).
+
+Verification additions on top of the standard checks:
+
+```bash
+kubectl get weaviate weaviate -n weaviate                      # CR status/conditions
+kubectl get secret weaviate-operator-admin-key -n weaviate \
+  -o jsonpath='{.data.key}' | base64 --decode                  # generated admin key
+kubectl logs -n wcs-weaviate-operator-system deployment/wcs-weaviate-operator-controller-manager
+kubectl rollout status deployment/transformers-inference -n weaviate  # local vectorizer (if enabled)
+kubectl rollout status deployment/model2vec-inference -n weaviate     # local vectorizer (if enabled)
+```
+
+Constraints: REPLICAS 1 or odd >= 3; helm-only options rejected; customize the CR
+via `cr-override.yaml` (deep-merged). See the SKILL.md Operator Deployment section.
