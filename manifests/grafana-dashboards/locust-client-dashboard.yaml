@@ -28,7 +28,22 @@ data:
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
       "id": null,
-      "links": [],
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "simulator"
+          ],
+          "targetBlank": false,
+          "title": "Simulator dashboards",
+          "tooltip": "",
+          "type": "dashboards",
+          "url": ""
+        }
+      ],
       "panels": [
         {
           "datasource": {
@@ -1539,7 +1554,8 @@ data:
       "refresh": "5s",
       "schemaVersion": 42,
       "tags": [
-        "wcd"
+        "wcd",
+        "simulator"
       ],
       "templating": {
         "list": [
