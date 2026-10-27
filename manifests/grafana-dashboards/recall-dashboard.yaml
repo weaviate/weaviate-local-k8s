@@ -24,7 +24,7 @@ data:
           }
         ]
       },
-      "description": "Recall@k of the vector index under test against the exact flat oracle, as the workload mutates the collection and at restored-dataset checkpoints.",
+      "description": "Recall@k of the vector index under test against the vectors file's stored neighbours, as the workload mutates the collection and at restored-dataset checkpoints.",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
@@ -451,7 +451,7 @@ data:
           "id": 6,
           "type": "timeseries",
           "title": "Probe latency",
-          "description": "Latency of one probe: the oracle query plus the target query, p50 and p95.",
+          "description": "Latency of one probe query against the index under test, p50 and p95.",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
