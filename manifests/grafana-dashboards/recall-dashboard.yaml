@@ -1,0 +1,714 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  name: recall-dashboard-configmap
+data:
+  recall-dashboard.json: |-
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "description": "Recall@k of the vector index under test against the vectors file's stored neighbours, as the workload mutates the collection and at restored-dataset checkpoints.",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [
+        {
+          "asDropdown": false,
+          "icon": "external link",
+          "includeVars": false,
+          "keepTime": true,
+          "tags": [
+            "simulator"
+          ],
+          "targetBlank": false,
+          "title": "Simulator dashboards",
+          "tooltip": "",
+          "type": "dashboards",
+          "url": ""
+        }
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Latest checkpoint recall@k",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Mean recall of the most recent checkpoint cycle: all probes run on the restored dataset. Comparable across cycles because data and queries are identical every time.",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 6,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "decimals": 3,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "text"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "orientation": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "simulation_recall_checkpoint{collection=~\"$collection\",index=~\"$index\"}",
+              "legendFormat": "{{collection}} / {{index}} (k={{k}})",
+              "range": true,
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Recall@k over time",
+          "description": "Rolling mean recall per phase from the simulation_recall histogram (sum/count over the rate interval). 'continuous' is measured while the workload mutates the collection; 'checkpoint' on the restored dataset.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 0,
+            "w": 18,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "axisPlacement": "left",
+                "axisBorderShow": false,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "latest checkpoint mean"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "line"
+                  },
+                  {
+                    "id": "custom.lineInterpolation",
+                    "value": "stepAfter"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        6,
+                        4
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (phase) (rate(simulation_recall_sum{collection=~\"$collection\",index=~\"$index\"}[$__rate_interval])) / sum by (phase) (rate(simulation_recall_count{collection=~\"$collection\",index=~\"$index\"}[$__rate_interval]))",
+              "legendFormat": "mean {{phase}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "simulation_recall_checkpoint{collection=~\"$collection\",index=~\"$index\"}",
+              "legendFormat": "latest checkpoint mean",
+              "range": true,
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Continuous recall percentiles",
+          "description": "Low percentiles of per-probe recall during the workload. p10 dropping while the mean holds means a minority of queries lose neighbours, typically right after deletes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "axisPlacement": "left",
+                "axisBorderShow": false,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.10, sum by (le) (rate(simulation_recall_bucket{collection=~\"$collection\",index=~\"$index\",phase=\"continuous\"}[$__rate_interval])))",
+              "legendFormat": "p10",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(simulation_recall_bucket{collection=~\"$collection\",index=~\"$index\",phase=\"continuous\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "range": true,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.90, sum by (le) (rate(simulation_recall_bucket{collection=~\"$collection\",index=~\"$index\",phase=\"continuous\"}[$__rate_interval])))",
+              "legendFormat": "p90",
+              "range": true,
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "heatmap",
+          "title": "Per-probe recall distribution (continuous)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "How many probes landed in each recall bucket per interval. With k=10 each bucket is one possible value (0.7, 0.8, 0.9, 1.0). A band creeping downwards is degradation; a single dark row at 1.0 is a healthy index.",
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "color": {
+              "mode": "scheme",
+              "scheme": "Blues",
+              "steps": 64,
+              "reverse": false,
+              "fill": "dark-blue"
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "unit": "percentunit",
+              "reverse": false
+            },
+            "legend": {
+              "show": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "yHistogram": false
+            },
+            "exemplars": {
+              "color": "rgba(255,0,255,0.7)"
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "rowsFrame": {
+              "layout": "auto"
+            },
+            "showValue": "never"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (le) (increase(simulation_recall_bucket{collection=~\"$collection\",index=~\"$index\",phase=\"continuous\",le!=\"+Inf\"}[$__rate_interval]))",
+              "legendFormat": "{{le}}",
+              "range": true,
+              "refId": "A",
+              "format": "heatmap"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Probe and pause activity",
+          "description": "Probes per second, and how many mutation and probe tasks returned early because a checkpoint had paused them. Paused counters rising mark the checkpoint windows.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 9,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "axisPlacement": "left",
+                "axisBorderShow": false,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "unit": "reqps",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (operation) (rate(simulation_requests_total{operation=~\"recall.probe|recall.paused|mutations.paused\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}}",
+              "range": true,
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Probe latency",
+          "description": "Latency of one probe query against the index under test, p50 and p95.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "x": 9,
+            "y": 16,
+            "w": 9,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "axisPlacement": "left",
+                "axisBorderShow": false,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              "unit": "ms",
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(simulation_request_latency_ms_bucket{operation=\"recall.probe\"}[$__rate_interval])))",
+              "legendFormat": "probe p50",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(simulation_request_latency_ms_bucket{operation=\"recall.probe\"}[$__rate_interval])))",
+              "legendFormat": "probe p95",
+              "range": true,
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Checkpoint cycles (this run)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Cycles completed since the simulator started and their mean wall time (pause, restore, settle, probe). Counters reset when the master restarts.",
+          "gridPos": {
+            "x": 18,
+            "y": 16,
+            "w": 6,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "text"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "mean duration"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cycles"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "orientation": "horizontal"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum(simulation_request_latency_ms_count{operation=\"recall.checkpoint\"})",
+              "legendFormat": "cycles",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "sum(simulation_request_latency_ms_sum{operation=\"recall.checkpoint\"}) / sum(simulation_request_latency_ms_count{operation=\"recall.checkpoint\"})",
+              "legendFormat": "mean duration",
+              "range": true,
+              "refId": "B"
+            }
+          ]
+        }
+      ],
+      "preload": false,
+      "refresh": "10s",
+      "schemaVersion": 42,
+      "tags": [
+        "weaviate",
+        "simulator",
+        "recall"
+      ],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "text": "Prometheus",
+              "value": "prometheus"
+            },
+            "includeAll": false,
+            "label": "Data source",
+            "name": "datasource",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
+          },
+          {
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(simulation_recall_count, collection)",
+            "includeAll": true,
+            "multi": true,
+            "name": "collection",
+            "options": [],
+            "query": {
+              "qryType": 1,
+              "query": "label_values(simulation_recall_count, collection)",
+              "refId": "PrometheusVariableQueryEditor-VariableQuery"
+            },
+            "refresh": 2,
+            "regex": "",
+            "type": "query"
+          },
+          {
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(simulation_recall_count, index)",
+            "includeAll": true,
+            "multi": true,
+            "name": "index",
+            "options": [],
+            "query": {
+              "qryType": 1,
+              "query": "label_values(simulation_recall_count, index)",
+              "refId": "PrometheusVariableQueryEditor-VariableQuery"
+            },
+            "refresh": 2,
+            "regex": "",
+            "type": "query"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Recall Over Time",
+      "uid": "recall-over-time",
+      "version": 3
+    }
